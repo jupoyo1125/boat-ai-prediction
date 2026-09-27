@@ -9,6 +9,18 @@ from odds_parser import parse_odds
 from model import load as load_model, save as save_model, learn_from_record
 
 app=Flask(__name__,static_folder='static')
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    return response
+
+@app.route('/health', methods=['GET','OPTIONS'])
+def health():
+    return jsonify({'ok':True,'service':'boat-ai-api-v2','status':'live'})
+    
 BASE='https://www.boatrace.jp/owpc/pc/race/'
 HEAD={'User-Agent':'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
 LEDGER=Path('performance_ledger.json')
