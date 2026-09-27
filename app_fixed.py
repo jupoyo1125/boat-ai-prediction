@@ -68,52 +68,101 @@ def api_analyze_fixed():
     before_source = f'{BASE}beforeinfo?hd={date}&jcd={jcd}&rno={race:02d}'
     odds_source = f'{BASE}odds3t?hd={date}&jcd={jcd}&rno={race:02d}'
 
+    # Core race data is required. Historical data is optional so it can
+    # never prevent the current race analysis from completing.
     try:
-        hist = historical_stats_fast(jcd, days)
         before = base.parse_before(base.get(before_source))
-        boats = base.analyze(
-            base.boats_from(base.get(source)),
-            fixed,
-            before,
-            hist
-        )
-        odds = base.parse_odds(base.get(odds_source))
-        combos = base.build_bets(boats, odds, fixed)
-        boats.sort(key=lambda x: x['score'], reverse=True)
-
-        return jsonify({
-            'ok': True,
-            'venue': STADIUMS.get(jcd, jcd),
-            'boats': boats,
-            'main': boats[0]['boat'],
-            'second': boats[1]['boat'],
-            'hole': boats[2]['boat'],
-            'scenario': base.scenario(boats, before),
-            'bets': combos[:12],
-            'history': hist,
-            'weather': {
-                'wind': before['wind'],
-                'wave': before['wave'],
-                'air': before['air'],
-                'water': before['water']
-            },
-            'odds_count': sum(v is not None for v in odds.values()),
-            'notice': (
-                f'公式出走表・直前情報・公式3連単オッズに加え、'
-                f'直近{days}日・{hist["races"]}レースの場別結果を補正に使用しています。'
-            ),
-            'source': source,
-            'before_source': before_source,
-            'odds_source': odds_source
-        })
     except Exception as e:
         return jsonify({
             'ok': False,
-            'error': str(e),
+            'error': f'ç´åæå ±ã®åå¾ã«å¤±æãã¾ãã: {type(e).__name__}: {e}',
             'source': source,
             'before_source': before_source,
             'odds_source': odds_source
         }), 502
+
+    try:
+        boats_raw = base.boats_from(base.get(source))
+        if not boats_raw:
+            raise RuntimeError('åºèµ°è¡¨ãè§£æã§ãã¾ããã§ãã')
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': f'åºèµ°è¡¨ã®åå¾ã«å¤±æãã¾ãã: {type(e).__name__}: {e}',
+            'source': source,
+            'before_source': before_source,
+            'odds_source': odds_source
+        }), 502
+
+    # Use no historical correction if the optional history request fails.
+    hist = {
+        'days': days,
+        'dates': 0,
+        'races': 0,
+        'first_win_rate': {str(i): 0 for i in range(1, 7)},
+        'top_combos': [],
+        'avg_payout': None,
+        'max_payout': None
+    }
+    try:
+        hist = historical_stats_fast(jcd, min(days, 7))
+    except Exception:
+        pass
+
+    try:
+        boats = base.analyze(boats_raw, fixed, before, hist)
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': f'ã¹ã³ã¢è¨ç®ã«å¤±æãã¾ãã: {type(e).__name__}: {e}',
+            'source': source,
+            'before_source': before_source,
+            'odds_source': odds_source
+        }), 502
+
+    # Odds are useful but must not prevent the score/race judgement from
+    # being displayed. Return an empty odds set if the official odds page
+    # cannot be parsed.
+    odds = {}
+    odds_error = None
+    try:
+        odds = base.parse_odds(base.get(odds_source))
+    except Exception as e:
+        odds_error = f'{type(e).__name__}: {e}'
+
+    try:
+        combos = base.build_bets(boats, odds, fixed)
+    except Exception:
+        combos = []
+
+    boats.sort(key=lambda x: x['score'], reverse=True)
+
+    return jsonify({
+        'ok': True,
+        'venue': STADIUMS.get(jcd, jcd),
+        'boats': boats,
+        'main': boats[0]['boat'],
+        'second': boats[1]['boat'] if len(boats) > 1 else boats[0]['boat'],
+        'hole': boats[2]['boat'] if len(boats) > 2 else boats[-1]['boat'],
+        'scenario': base.scenario(boats, before),
+        'bets': combos[:12],
+        'history': hist,
+        'weather': {
+            'wind': before['wind'],
+            'wave': before['wave'],
+            'air': before['air'],
+            'water': before['water']
+        },
+        'odds_count': sum(v is not None for v in odds.values()),
+        'odds_error': odds_error,
+        'notice': (
+            f'å¬å¼åºèµ°è¡¨ã»ç´åæå ±ãåªåã'
+            f'ç´è¿{hist["days"]}æ¥ã»{hist["races"]}ã¬ã¼ã¹ã®å ´å¥çµæãè£æ­£ã«ä½¿ç¨ã'
+        ),
+        'source': source,
+        'before_source': before_source,
+        'odds_source': odds_source
+    })
 
 # Replace the original slow /api/analyze handler.
 app.view_functions['api_analyze'] = api_analyze_fixed
