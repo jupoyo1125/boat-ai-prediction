@@ -98,10 +98,23 @@ def num(s):
     return float(m.group()) if m else None
 
 def boat_no(text):
-    s = str(text).strip().translate(str.maketrans('ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼', '1234567890'))
-    m = re.match(r'^([1-6])(?:\s|$)', s)
-    return int(m.group(1)) if m else None
+    s = str(text).strip()
 
+    try:
+        s = s.encode("latin1").decode("utf-8")
+    except Exception:
+        pass
+
+    s = s.translate(
+        str.maketrans(
+            '０１２３４５６７８９',
+            '0123456789'
+        )
+    )
+
+    m = re.match(r'^([1-6])(?:\s|$)', s)
+
+    return int(m.group(1)) if m else None
 def boats_from(html):
     soup = BeautifulSoup(html, 'html.parser')
     out = {}
