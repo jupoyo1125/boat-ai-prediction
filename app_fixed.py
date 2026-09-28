@@ -46,8 +46,10 @@ def fast_get(url, timeout=8):
                 allow_redirects=True
             )
             r.raise_for_status()
-            r.encoding = r.apparent_encoding or "utf-8"
-            return r.text
+            try:
+                return r.content.decode("utf-8")
+            except UnicodeDecodeError:
+                return r.content.decode("cp932", errors="replace")
 
         except Exception as e:
             last_error = e
