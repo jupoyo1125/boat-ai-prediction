@@ -226,13 +226,13 @@ def analyze(raw, fixed, before, hist):
         c = raw.get(b, [])
         rows.append({
             'boat': b,
-            'nation': value(c, ['å¨å½']),
-            'local': value(c, ['å½å°']),
-            'motor': value(c, ['ã¢ã¼ã¿ã¼']),
-            'st': value(c, ['å¹³åST']),
+            'nation': value(c, ['全国']),
+            'local': value(c, ['当地']),
+            'motor': value(c, ['モーター']),
+            'st': value(c, ['平均ST']),
             'exhibition': before['exhibition'].get(b),
             'exhibition_st': before['exhibition_st'].get(b)
-        })
+})
 
     def norm(vals, x, rev=False):
         v = [z for z in vals if isinstance(z, (int, float))]
