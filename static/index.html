@@ -3,218 +3,119 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BOAT AI 予想 | 競艇レース分析</title>
+<title>BOAT AI 予想 | 学習型競艇分析</title>
 <style>
 :root{--bg:#07111f;--panel:#0d1b2d;--panel2:#12243a;--line:#203852;--text:#f3f7fb;--muted:#8ea4ba;--accent:#36a3ff;--accent2:#65d7ff;--good:#53d88a;--warn:#ffd166;--bad:#ff6b7a}
-*{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#06101d,#0a1728 55%,#06101d);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
-.app{max-width:1180px;margin:auto;padding:22px}
-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:22px}
-.brand{font-size:25px;font-weight:900;letter-spacing:.5px}.brand span{color:var(--accent2)}
-.badge{font-size:12px;color:#c9e9ff;border:1px solid #2a5d82;padding:7px 10px;border-radius:999px;background:#0b2135}
-.hero{padding:24px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(circle at top right,#123453 0,#0d1b2d 48%,#0b1727 100%);box-shadow:0 15px 50px #0005}
-h1{margin:0 0 7px;font-size:30px}.sub{color:var(--muted);margin-bottom:20px}
-.controls{display:grid;grid-template-columns:1.2fr 1fr .7fr .9fr auto;gap:10px}
-select,input,button{width:100%;border-radius:11px;border:1px solid #29445e;background:#091727;color:var(--text);padding:12px;font-size:14px}
-button{background:linear-gradient(135deg,#1787e8,#3ab7ff);border:0;font-weight:800;cursor:pointer}
-button:hover{filter:brightness(1.08)}
-.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px;margin-top:16px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}
-.panel h2{font-size:17px;margin:0 0 15px}.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
-.boat{background:var(--panel2);border:1px solid #24415c;border-radius:13px;padding:12px}.boat .num{font-size:22px;font-weight:900}.boat .name{font-weight:700;margin:4px 0 8px}.score{font-size:22px;font-weight:900;color:var(--accent2)}.bar{height:5px;background:#1d344b;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1c8ee9,#73dcff)}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#06101d,#0a1728 55%,#06101d);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
+.app{max-width:1180px;margin:auto;padding:22px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:22px}.brand{font-size:25px;font-weight:900}.brand span{color:var(--accent2)}.badge{font-size:12px;color:#c9e9ff;border:1px solid #2a5d82;padding:7px 10px;border-radius:999px;background:#0b2135}
+.hero{padding:24px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(circle at top right,#123453 0,#0d1b2d 48%,#0b1727 100%);box-shadow:0 15px 50px #0005}h1{margin:0 0 7px;font-size:30px}.sub{color:var(--muted);margin-bottom:20px}
+.controls{display:grid;grid-template-columns:1.2fr 1fr .7fr .9fr auto auto;gap:10px}select,input,button{width:100%;border-radius:11px;border:1px solid #29445e;background:#091727;color:var(--text);padding:12px;font-size:14px}button{background:linear-gradient(135deg,#1787e8,#3ab7ff);border:0;font-weight:800;cursor:pointer}button.secondary{background:#16314a;border:1px solid #2c5777}button:disabled{opacity:.55}
+.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px;margin-top:16px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}.panel h2{font-size:17px;margin:0 0 15px}
+.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.boat{background:var(--panel2);border:1px solid #24415c;border-radius:13px;padding:12px}.boat .num{font-size:22px;font-weight:900}.boat .name{font-weight:700;margin:4px 0 8px}.score{font-size:22px;font-weight:900;color:var(--accent2)}.bar{height:5px;background:#1d344b;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1c8ee9,#73dcff)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.metric{padding:12px;background:var(--panel2);border-radius:12px}.metric small{display:block;color:var(--muted)}.metric b{display:block;margin-top:4px;font-size:18px}
-.scenario{display:flex;gap:8px;flex-wrap:wrap}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
+.status{margin-top:12px;padding:11px;border-radius:10px;background:#0b1c2d;color:#bfe8ff;font-size:13px}.scenario{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #1d334a;text-align:left;font-size:13px}th{color:var(--muted);font-weight:600}.tag{padding:5px 8px;border-radius:7px;font-weight:800;font-size:11px}.good{background:#123d2a;color:#73e4a0}.mid{background:#4a3a13;color:#ffd66d}.low{background:#431b24;color:#ff8290}
-.big{font-size:27px;font-weight:900}.reason{color:var(--muted);font-size:13px;line-height:1.6}
 .footer{color:#71869a;font-size:11px;text-align:center;padding:18px}
-@media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr}}
+@media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:auto}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}}
 </style>
 </head>
 <body>
 <div class="app">
-<header><div class="brand">BOAT <span>AI</span> 予想</div><div class="badge">VER.6 PROTOTYPE</div></header>
+<header><div class="brand">BOAT <span>AI</span> 予想</div><div class="badge">LEARNING PROTOTYPE</div></header>
 <section class="hero">
 <h1>レースを選んで、AI分析</h1>
-<div class="sub">出走データ・ST・機力・展示・オッズをまとめて、展開と買い目候補を整理。</div>
+<div class="sub">予想を保存し、レース結果を取得すると学習データへ反映します。</div>
 <div class="controls">
-<select id="date"><option>2026/09/27</option><option>2026/09/28</option></select>
-<select id="stadium"><option>丸亀</option><option>児島</option><option>蒲郡</option><option>住之江</option><option>大村</option></select>
+<select id="date"></select>
+<select id="stadium"><option value="15">丸亀</option><option value="16">児島</option><option value="07">蒲郡</option><option value="12">住之江</option><option value="24">大村</option></select>
 <select id="race"><option>9R</option><option>10R</option><option>11R</option><option>12R</option></select>
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
-<button onclick="analyze()">分析開始</button>
+<button id="analyzeBtn" onclick="analyze()">AI予想</button>
+<button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
 </div>
 </section>
 
 <div class="grid">
-<section class="panel">
-<h2>6艇スコア</h2>
-<div class="cards" id="boats"></div>
-</section>
-<section class="panel">
-<h2>レース判断</h2>
-<div class="metrics">
-<div class="metric"><small>本命</small><b id="main">1号艇</b></div>
-<div class="metric"><small>対抗</small><b id="second">2号艇</b></div>
-<div class="metric"><small>穴</small><b id="hole">3号艇</b></div>
-<div class="metric"><small>想定</small><b id="type">逃げ</b></div>
-</div>
-<p class="reason" id="reason">分析開始を押すと、現在の入力条件をもとに表示します。</p>
-<div class="scenario"><span class="pill active">逃げ</span><span class="pill">差し</span><span class="pill">まくり</span><span class="pill">まくり差し</span><span class="pill">波乱</span></div>
-</section>
+<section class="panel"><h2>6艇スコア</h2><div class="cards" id="boats"></div></section>
+<section class="panel"><h2>レース判断</h2><div class="metrics">
+<div class="metric"><small>本命</small><b id="main">-</b></div><div class="metric"><small>対抗</small><b id="second">-</b></div><div class="metric"><small>穴</small><b id="hole">-</b></div><div class="metric"><small>想定</small><b id="type">-</b></div>
+</div><div class="status" id="reason">「AI予想」を押してください。</div><div class="scenario"><span class="pill active">予想→保存→結果→学習</span></div></section>
 </div>
 
-<section class="panel" style="margin-top:16px">
-<h2>3連単・期待値候補</h2>
-<table><thead><tr><th>順位</th><th>買い目</th><th>モデル確率</th><th>オッズ</th><th>期待値</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
+<section class="panel" style="margin-top:16px"><h2>3連単・期待値候補</h2>
+<table><thead><tr><th>順位</th><th>買い目</th><th>推定確率</th><th>オッズ</th><th>期待倍率</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
 </section>
-<div class="footer">分析値はモデルによる参考値です。的中率・利益を保証するものではありません。</div>
+<div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
 </div>
+
 <script>
-async function analyze(){
- const rawDate=document.getElementById('date').value || '';
- const date=rawDate.replace(/[^0-9]/g,'');
+let lastPrediction=null;
 
- const stadiumMap={
-  '丸亀':'15',
-  '児島':'16',
-  '蒲郡':'07',
-  '住之江':'12',
-  '大村':'24'
+function dateString(d){
+ return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+}
+function setupDates(){
+ const el=document.getElementById('date'); const today=new Date();
+ for(let i=0;i<7;i++){
+  const d=new Date(today); d.setDate(today.getDate()-i);
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  const o=document.createElement('option'); o.value=dateString(d); o.textContent=`${y}/${m}/${day}`; el.appendChild(o);
+ }
+ el.value=dateString(today);
+}
+function getParams(){
+ return {
+  date:document.getElementById('date').value,
+  stadium:document.getElementById('stadium').value,
+  race:Number(document.getElementById('race').value.replace(/[^0-9]/g,'')),
+  fixed:document.getElementById('fixed').value
  };
-
- const stadium=stadiumMap[
-  document.getElementById('stadium').value
- ] || '15';
-
- const race=document.getElementById('race').value
-  .replace(/[^0-9]/g,'');
-
- const fixed=document.getElementById('fixed').value;
-
- const status=document.getElementById('reason');
+}
+async function analyze(){
+ const p=getParams(); const status=document.getElementById('reason');
+ const btn=document.getElementById('analyzeBtn'); btn.disabled=true;
  status.textContent='公式データを取得して分析中…';
-
  try{
-  const params=new URLSearchParams();
-
-  params.set('date',date);
-  params.set('stadium',stadium);
-  params.set('race',race);
-  params.set('fixed',fixed);
-  params.set('history_days','30');
-
-  const url='/api/analyze?'+params.toString();
-
-  const r=await fetch(url,{
-   method:'GET',
-   headers:{
-    'Accept':'application/json'
-   }
-  });
-
-  const x=await r.json();
-
-  if(!r.ok || !x.ok){
-   throw new Error(
-    x.error || '分析に失敗しました'
-   );
-  }
-
-  const boats=x.boats;
-
-  document.getElementById('boats').innerHTML=
-   boats.map(b=>`
-    <div class="boat">
-     <div class="num">${b.boat}号艇</div>
-     <div class="name">${b.name||'選手'}</div>
-     <div class="score">
-      ${Number(b.score).toFixed(1)}
-     </div>
-     <div class="bar">
-      <i style="width:${Math.min(
-       100,
-       Math.max(0,b.score)
-      )}%"></i>
-     </div>
-     <small>
-      全国 ${b.nation??'-'} /
-      当地 ${b.local??'-'}<br>
-      ST ${b.st??'-'} /
-      展示 ${b.exhibition??'-'}
-     </small>
-    </div>
-   `).join('');
-
-  document.getElementById('main').textContent=
-   x.main+'号艇';
-
-  document.getElementById('second').textContent=
-   x.second+'号艇';
-
-  document.getElementById('hole').textContent=
-   x.hole+'号艇';
-
-  document.getElementById('type').textContent=
-   x.scenario;
-
-  document.getElementById('reason').textContent=
-   `公式出走表・直前情報・公式オッズと直近${x.history.days}日（${x.history.races}レース）の場別結果を反映。`;
-
-  document.getElementById('bets').innerHTML=
-   x.bets.map((b,i)=>{
-    const ev=
-     b.ev==null ? null : Number(b.ev);
-
-    const cls=
-     ev==null ? 'low' :
-     ev>=1 ? 'good' : 'mid';
-
-    return `
-     <tr>
-      <td>${i+1}</td>
-      <td><b>${b.bet}</b></td>
-      <td>${(
-       b.probability*100
-      ).toFixed(2)}%</td>
-      <td>${b.odds??'-'}</td>
-      <td>${
-       ev==null ? '-' : ev.toFixed(2)
-      }</td>
-      <td>
-       <span class="tag ${cls}">
-        ${b.judgement}
-       </span>
-      </td>
-     </tr>
-    `;
-   }).join('');
-
- }catch(e){
-  status.textContent=
-   'エラー: '+e.message;
- }
+  const q=new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race,fixed:p.fixed,history_days:'30'});
+  const r=await fetch('/api/analyze?'+q.toString()); const x=await r.json();
+  if(!r.ok||!x.ok) throw new Error(x.error||'分析に失敗しました');
+  renderAnalysis(x);
+  const firstBet=x.bets&&x.bets.length?String(x.bets[0].bet).replace(/-/g,''):'';
+  lastPrediction={...p, predicted_first:x.main, combo:firstBet, features:x.features||{}};
+  const saveR=await fetch('/api/performance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+   date:p.date,stadium:p.stadium,race:p.race,combo:firstBet,predicted_first:x.main,features:x.features||{},investment:0,payout:0,note:'AI自動予想'
+  })});
+  const saved=await saveR.json();
+  if(!saveR.ok||!saved.ok) throw new Error(saved.error||'予想保存に失敗しました');
+  document.getElementById('settleBtn').disabled=false;
+  status.textContent=`AI予想を保存しました。${x.venue} ${p.race}R｜本命 ${x.main}号艇｜次に「結果取得・学習」を押せます。`;
+ }catch(e){status.textContent='エラー: '+e.message; document.getElementById('settleBtn').disabled=true;}
+ finally{btn.disabled=false;}
 }
-
-function setToday(){
- const d=new Date();
-
- const s=
-  d.getFullYear()+'/' +
-  String(d.getMonth()+1).padStart(2,'0')+'/' +
-  String(d.getDate()).padStart(2,'0');
-
- const el=document.getElementById('date');
-
- const option=
-  [...el.options].find(
-   o=>o.value===s
-  );
-
- if(option){
-  el.value=s;
- }
+function renderAnalysis(x){
+ document.getElementById('boats').innerHTML=x.boats.map(b=>`
+  <div class="boat"><div class="num">${b.boat}号艇</div><div class="name">${b.name||'選手'}</div>
+  <div class="score">${Number(b.score).toFixed(1)}</div><div class="bar"><i style="width:${Math.min(100,Math.max(0,b.score))}%"></i></div>
+  <small>全国 ${b.nation??'-'} / 当地 ${b.local??'-'}<br>ST ${b.st??'-'} / 展示 ${b.exhibition??'-'}</small></div>`).join('');
+ document.getElementById('main').textContent=x.main+'号艇'; document.getElementById('second').textContent=x.second+'号艇'; document.getElementById('hole').textContent=x.hole+'号艇'; document.getElementById('type').textContent=x.scenario;
+ document.getElementById('bets').innerHTML=(x.bets||[]).map((b,i)=>{
+  const ev=b.ev==null?null:Number(b.ev),cls=ev==null?'low':ev>=1?'good':'mid';
+  return `<tr><td>${i+1}</td><td><b>${b.bet}</b></td><td>${(Number(b.probability)*100).toFixed(2)}%</td><td>${b.odds??'-'}</td><td>${ev==null?'-':ev.toFixed(2)}</td><td><span class="tag ${cls}">${b.judgement}</span></td></tr>`;
+ }).join('');
 }
-
-setToday();
+async function settlePrediction(){
+ if(!lastPrediction){document.getElementById('reason').textContent='先にAI予想を実行してください。';return;}
+ const btn=document.getElementById('settleBtn');btn.disabled=true;
+ const status=document.getElementById('reason');status.textContent='公式結果を取得して学習しています…';
+ try{
+  const r=await fetch('/api/settle_prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(lastPrediction)});
+  const x=await r.json(); if(!r.ok||!x.ok) throw new Error(x.error||'結果取得に失敗しました');
+  const hit=x.record.hit?'的中':'不的中';
+  status.textContent=`結果 ${x.result.combo}｜${hit}｜学習${x.learning_hit?'成功':'反映済み'}｜学習回数 ${x.model.samples}回`;
+  lastPrediction=null;
+ }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
+}
+setupDates();
 </script>
 </body>
 </html>
