@@ -224,14 +224,43 @@ def analyze(raw, fixed, before, hist):
     rows = []
     for b in range(1, 7):
         c = raw.get(b, [])
-        rows.append({
-            'boat': b,
-            'nation': value(c, ['全国']),
-            'local': value(c, ['当地']),
-            'motor': value(c, ['モーター']),
-            'st': value(c, ['平均ST']),
-            'exhibition': before['exhibition'].get(b),
-            'exhibition_st': before['exhibition_st'].get(b)
+        # 公式出走表は列位置で取得する
+name_text = c[2] if len(c) > 2 else ''
+name_text = re.sub(
+    r'^\d+\s*/\s*[A-Z]\d+\s*',
+    '',
+    name_text
+).strip()
+
+st_nums = re.findall(
+    r'\d+(?:\.\d+)?',
+    c[3] if len(c) > 3 else ''
+)
+
+nation_nums = re.findall(
+    r'\d+(?:\.\d+)?',
+    c[4] if len(c) > 4 else ''
+)
+
+local_nums = re.findall(
+    r'\d+(?:\.\d+)?',
+    c[5] if len(c) > 5 else ''
+)
+
+motor_nums = re.findall(
+    r'\d+(?:\.\d+)?',
+    c[6] if len(c) > 6 else ''
+)
+
+rows.append({
+    'boat': b,
+    'name': name_text,
+    'nation': float(nation_nums[0]) if nation_nums else None,
+    'local': float(local_nums[0]) if local_nums else None,
+    'motor': float(motor_nums[1]) if len(motor_nums) > 1 else None,
+    'st': float(st_nums[-1]) if st_nums else None,
+    'exhibition': before['exhibition'].get(b),
+    'exhibition_st': before['exhibition_st'].get(b)
 })
 
     def norm(vals, x, rev=False):
