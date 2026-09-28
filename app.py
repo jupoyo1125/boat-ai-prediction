@@ -114,7 +114,7 @@ def parse_before(html):
         cells=[x.get_text(' ',strip=True) for x in tr.find_all(['th','td'])]
         if not cells: continue
         b=boat_no(cells[0])
-if not b: continue
+　　 　　 if not b: continue
         ex=next((num(x) for x in cells if re.fullmatch(r'6\.\d{2}',x)),None)
         if ex is not None: out['exhibition'][b]=ex
         sts=[float(x.lstrip('.'))/100 for x in cells if re.fullmatch(r'\.?\d{2}',x) and not x.startswith('F')]
