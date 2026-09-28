@@ -62,14 +62,37 @@ def num(s):
     m=re.search(r'-?\d+(?:\.\d+)?',str(s).replace(',',''))
     return float(m.group()) if m else None
 
+def boat_no(text):
+    s=str(text).strip().translate(
+        str.maketrans(
+            '１２３４５６７８９０',
+            '1234567890'
+        )
+    )
+    m=re.match(r'^([1-6])(?:\s|$)',s)
+    return int(m.group(1)) if m else None
+
+
 def boats_from(html):
-    soup=BeautifulSoup(html,'html.parser'); out={}
+    soup=BeautifulSoup(html,'html.parser')
+    out={}
+
     for tr in soup.find_all('tr'):
-        cells=[x.get_text(' ',strip=True) for x in tr.find_all(['th','td'])]
+        cells=[
+            x.get_text(' ',strip=True)
+            for x in tr.find_all(['th','td'])
+        ]
+
         if cells:
-            m=re.match(r'^([1-6])(?:\s|$)',cells[0])
-            if m:
-                b=int(m.group(1)); out[b]=max(out.get(b,[]),cells,key=len)
+            b=boat_no(cells[0])
+
+            if b:
+                out[b]=max(
+                    out.get(b,[]),
+                    cells,
+                    key=len
+                )
+
     return out
 
 def value(cells,labels):
@@ -90,9 +113,8 @@ def parse_before(html):
     for tr in soup.find_all('tr'):
         cells=[x.get_text(' ',strip=True) for x in tr.find_all(['th','td'])]
         if not cells: continue
-        m=re.match(r'^([1-6])(?:\s|$)',cells[0])
-        if not m: continue
-        b=int(m.group(1))
+        b=boat_no(cells[0])
+if not b: continue
         ex=next((num(x) for x in cells if re.fullmatch(r'6\.\d{2}',x)),None)
         if ex is not None: out['exhibition'][b]=ex
         sts=[float(x.lstrip('.'))/100 for x in cells if re.fullmatch(r'\.?\d{2}',x) and not x.startswith('F')]
