@@ -10,7 +10,13 @@ import app as base
 app = base.app
 BASE = base.BASE
 STADIUMS = base.STADIUMS
-HEAD = base.HEAD
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1",
+    "Referer": "https://www.boatrace.jp/",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+}
 
 
 # --------------------------------------------------
@@ -19,14 +25,34 @@ HEAD = base.HEAD
 # --------------------------------------------------
 
 def fast_get(url, timeout=8):
-    r = requests.get(
-        url,
-        headers=HEAD,
-        timeout=timeout
-    )
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding or "utf-8"
-    return r.text
+    candidates = [url]
+
+    if "www.boatrace.jp" in url:
+        candidates.append(
+            url.replace(
+                "https://www.boatrace.jp",
+                "https://boatrace.jp"
+            )
+        )
+
+    last_error = None
+
+    for target_url in candidates:
+        try:
+            r = requests.get(
+                target_url,
+                headers=BROWSER_HEADERS,
+                timeout=timeout,
+                allow_redirects=True
+            )
+            r.raise_for_status()
+            r.encoding = r.apparent_encoding or "utf-8"
+            return r.text
+
+        except Exception as e:
+            last_error = e
+
+    raise last_error
 
 
 # --------------------------------------------------
