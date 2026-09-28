@@ -378,7 +378,7 @@ def api_analyze_fixed():
         ),
 
         "bets": combos[:12],
-
+        "features": base.feature_snapshot(boats),
         "history": hist,
 
         "weather": {
