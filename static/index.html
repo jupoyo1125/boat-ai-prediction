@@ -27,8 +27,47 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <div class="sub">予想を保存し、レース結果を取得すると学習データへ反映します。</div>
 <div class="controls">
 <select id="date"></select>
-<select id="stadium"><option value="15">丸亀</option><option value="16">児島</option><option value="07">蒲郡</option><option value="12">住之江</option><option value="24">大村</option></select>
-<select id="race"><option>9R</option><option>10R</option><option>11R</option><option>12R</option></select>
+<select id="stadium">
+<option value="01">桐生</option>
+<option value="02">戸田</option>
+<option value="03">江戸川</option>
+<option value="04">平和島</option>
+<option value="05">多摩川</option>
+<option value="06">浜名湖</option>
+<option value="07">蒲郡</option>
+<option value="08">常滑</option>
+<option value="09">津</option>
+<option value="10">三国</option>
+<option value="11">びわこ</option>
+<option value="12">住之江</option>
+<option value="13">尼崎</option>
+<option value="14">鳴門</option>
+<option value="15">丸亀</option>
+<option value="16">児島</option>
+<option value="17">宮島</option>
+<option value="18">徳山</option>
+<option value="19">下関</option>
+<option value="20">若松</option>
+<option value="21">芦屋</option>
+<option value="22">福岡</option>
+<option value="23">唐津</option>
+<option value="24">大村</option>
+</select>
+ 
+<select id="race">
+<option>1R</option>
+<option>2R</option>
+<option>3R</option>
+<option>4R</option>
+<option>5R</option>
+<option>6R</option>
+<option>7R</option>
+<option>8R</option>
+<option>9R</option>
+<option>10R</option>
+<option>11R</option>
+<option>12R</option>
+</select>
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
 <button id="analyzeBtn" onclick="analyze()">AI予想</button>
 <button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
