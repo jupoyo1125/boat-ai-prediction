@@ -520,11 +520,21 @@ def api_settle_prediction():
         row = candidates[-1]
         actual_combo = result['combo']
         row['actual_combo'] = actual_combo
-        row['payout'] = result.get('payout') or 0
-        row['profit'] = float(row.get('payout',0) or 0) - float(row.get('investment',0) or 0)
-        row['hit'] = bool(row.get('combo') == actual_combo)
-        row['settled'] = True
 
+        # 予想した3連単が的中した場合のみ払戻を計上する。
+        # 公式払戻は100円あたりなので、投資額に応じて換算する。
+        row['hit'] = bool(row.get('combo') == actual_combo)
+        official_payout = float(result.get('payout') or 0)
+        investment = float(row.get('investment', 0) or 0)
+
+        if row['hit'] and investment > 0:
+            row['payout'] = round(official_payout * (investment / 100.0), 2)
+        else:
+            row['payout'] = 0
+
+        row['official_payout'] = official_payout
+        row['profit'] = float(row.get('payout', 0) or 0) - investment
+        row['settled'] = True
         actual_first = int(actual_combo[0])
         predicted_first = row.get('predicted_first')
         features = row.get('features') or {}
