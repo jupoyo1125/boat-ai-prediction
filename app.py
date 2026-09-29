@@ -461,28 +461,28 @@ def api_settle_prediction():
         predicted_first = row.get('predicted_first')
         features = row.get('features') or {}
 
-predicted_features = {}
-if isinstance(features, dict) and predicted_first in range(1, 7):
-    predicted_features = (
-        features.get(str(predicted_first))
-        or features.get(predicted_first)
-        or {}
-    )
+        predicted_features = {}
+        if isinstance(features, dict) and predicted_first in range(1, 7):
+            predicted_features = (
+                features.get(str(predicted_first))
+                or features.get(predicted_first)
+                or {}
+            )
 
-if predicted_features:
-    state, hit = learn_from_features(
-        load_model(),
-        predicted_features,
-        actual_first,
-        predicted_first
-    )
-else:
-    predicted_order = [int(x) for x in str(row.get('combo','')) if x.isdigit()]
-    state, hit = learn_from_record(
-        load_model(),
-        predicted_order,
-        actual_first
-    )
+        if predicted_features:
+            state, hit = learn_from_features(
+                load_model(),
+                predicted_features,
+                actual_first,
+                predicted_first
+            )
+        else:
+            predicted_order = [int(x) for x in str(row.get('combo','')) if x.isdigit()]
+            state, hit = learn_from_record(
+                load_model(),
+                predicted_order,
+                actual_first
+            )
         row['learned'] = True
         row['learn_hit'] = bool(hit)
         save_ledger(rows)
