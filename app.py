@@ -156,7 +156,7 @@ def parse_before(html):
         b = boat_no(cells[0])
         if not b:
             continue
-        ex = next((num(x) for x in cells if re.fullmatch(r'6\.\d{2}', x)), None)
+        ex = num(cells[4]) if len(cells) > 4 else None
         if ex is not None:
             out['exhibition'][b] = ex
         sts = [float(x.lstrip('.'))/100 for x in cells if re.fullmatch(r'\.?\d{2}', x) and not x.startswith('F')]
