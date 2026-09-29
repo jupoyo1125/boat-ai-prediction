@@ -45,6 +45,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <option>12R</option>
 </select>
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
+<input id="investment" type="number" min="0" step="100" value="1000" placeholder="1レース投資額">
 <button id="analyzeBtn" onclick="analyze()">AI予想</button>
 <button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
 </div>
@@ -91,6 +92,57 @@ AIが現在重視している特徴
 </div>
 
 <div id="learnWeights"></div>
+</div>
+</section>
+<section class="panel" style="margin-top:16px">
+<h2>運用実績</h2>
+
+<div class="metrics">
+<div class="metric">
+<small>結果確定レース</small>
+<b id="perfSettled">-</b>
+</div>
+
+<div class="metric">
+<small>3連単的中</small>
+<b id="perfWins">-</b>
+</div>
+
+<div class="metric">
+<small>3連単的中率</small>
+<b id="perfHitRate">-</b>
+</div>
+
+<div class="metric">
+<small>回収率（ROI）</small>
+<b id="perfRoi">-</b>
+</div>
+</div>
+
+<div class="metrics" style="margin-top:9px">
+<div class="metric">
+<small>累計投資</small>
+<b id="perfInvestment">-</b>
+</div>
+
+<div class="metric">
+<small>累計払戻</small>
+<b id="perfPayout">-</b>
+</div>
+
+<div class="metric">
+<small>累計損益</small>
+<b id="perfProfit">-</b>
+</div>
+
+<div class="metric">
+<small>現在の連敗</small>
+<b id="perfLosing">-</b>
+</div>
+</div>
+
+<div class="status" id="perfNote">
+1レースの投資額を設定してAI予想を保存すると、運用実績に反映されます。
 </div>
 </section>
 <div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
@@ -186,7 +238,52 @@ let lastPrediction=null;
   console.error('学習状況取得エラー',e);
  }
 }
+async function loadPerformanceStatus(){
+  try{
+    const r=await fetch('/api/performance');
+    const x=await r.json();
 
+    if(!r.ok || !x.ok) return;
+
+    const s=x.stats||{};
+    const money=n=>Number(n||0).toLocaleString('ja-JP')+'円';
+
+    document.getElementById('perfSettled').textContent=
+      Number(s.settled||0)+'R';
+
+    document.getElementById('perfWins').textContent=
+      Number(s.wins||0)+'R';
+
+    document.getElementById('perfHitRate').textContent=
+      s.hit_rate==null
+        ? '-'
+        : Number(s.hit_rate).toFixed(1)+'%';
+
+    document.getElementById('perfRoi').textContent=
+      s.roi==null
+        ? '-'
+        : Number(s.roi).toFixed(1)+'%';
+
+    document.getElementById('perfInvestment').textContent=
+      money(s.investment);
+
+    document.getElementById('perfPayout').textContent=
+      money(s.payout);
+
+    const profit=Number(s.profit||0);
+
+    document.getElementById('perfProfit').textContent=
+      (profit>0?'+':'')+
+      profit.toLocaleString('ja-JP')+
+      '円';
+
+    document.getElementById('perfLosing').textContent=
+      Number(s.current_losing_streak||0)+'R';
+
+  }catch(e){
+    console.error('運用実績取得エラー',e);
+  }
+}
 function dateString(d){
  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
 }
@@ -208,7 +305,15 @@ function getParams(){
  };
 }
 async function analyze(){
- const p=getParams(); const status=document.getElementById('reason');
+ const p=getParams();
+ const investment=Number(document.getElementById('investment').value||0);
+ 
+ if(!Number.isFinite(investment) || investment<0 || investment%100!==0){
+  document.getElementById('reason').textContent='投資額は0以上・100円単位で入力してください。';
+  return;
+ }
+
+ const status=document.getElementById('reason');
  const btn=document.getElementById('analyzeBtn'); btn.disabled=true;
  status.textContent='公式データを取得して分析中…';
  try{
@@ -217,9 +322,9 @@ async function analyze(){
   if(!r.ok||!x.ok) throw new Error(x.error||'分析に失敗しました');
   renderAnalysis(x);
   const firstBet=x.bets&&x.bets.length?String(x.bets[0].bet).replace(/-/g,''):'';
-  lastPrediction={...p, predicted_first:x.main, combo:firstBet, features:x.features||{}};
+  lastPrediction={...p, predicted_first:x.main, combo:firstBet, features:x.features||{}, investment:investment};
   const saveR=await fetch('/api/performance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-   date:p.date,stadium:p.stadium,race:p.race,combo:firstBet,predicted_first:x.main,features:x.features||{},investment:0,payout:0,note:'AI自動予想'
+   date:p.date,stadium:p.stadium,race:p.race,combo:firstBet,predicted_first:x.main,features:x.features||{},investment:investment,payout:0,note:'AI自動予想'
   })});
   const saved=await saveR.json();
   if(!saveR.ok||!saved.ok) throw new Error(saved.error||'予想保存に失敗しました');
@@ -249,12 +354,15 @@ async function settlePrediction(){
   const hit=x.record.hit?'的中':'不的中';
   status.textContent=`結果 ${x.result.combo}｜${hit}｜学習${x.learning_hit?'成功':'反映済み'}｜学習回数 ${x.model.samples}回`;
   lastPrediction=null;
+  loadLearningStatus();
+  loadPerformanceStatus();
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
 document.getElementById('date').addEventListener('change',loadSchedule);
 setupDates();
 loadSchedule();
 loadLearningStatus();
+loadPerformanceStatus();
  
 </script>
 </body>
