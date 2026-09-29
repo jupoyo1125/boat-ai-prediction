@@ -3,6 +3,7 @@ from itertools import permutations
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
+import os
 import re, requests, math, time
 from bs4 import BeautifulSoup
 from odds_parser import parse_odds
@@ -30,7 +31,34 @@ BASE = 'https://www.boatrace.jp/owpc/pc/race/'
 HEAD = {'User-Agent': 'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
 LEDGER = Path('performance_ledger.json')
 FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st', 'history']
+def _database_url():
+    return os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
 
+
+def _db_enabled():
+    return bool(_database_url())
+
+
+def _db_connect():
+    import psycopg
+    return psycopg.connect(_database_url())
+
+
+def _ensure_ledger_table():
+    if not _db_enabled():
+        return
+
+    with _db_connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS performance_ledger (
+                id TEXT PRIMARY KEY,
+                record JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        conn.commit()
 STADIUMS = {
     '01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖',
     '07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江',
@@ -107,16 +135,114 @@ def api_schedule():
             )
         }), 502
 def load_ledger():
+    if _db_enabled():
+        try:
+            _ensure_ledger_table()
+
+            with _db_connect() as conn:
+                db_rows = conn.execute(
+                    "SELECT record FROM performance_ledger ORDER BY id"
+                ).fetchall()
+
+            rows = []
+
+            for item in db_rows:
+                record = item[0]
+
+                if isinstance(record, str):
+                    record = json.loads(record)
+
+                rows.append(record)
+
+            # 既存のローカル台帳があれば初回だけPostgreSQLへ移行
+            if not rows and LEDGER.exists():
+                try:
+                    legacy = json.loads(
+                        LEDGER.read_text(encoding='utf-8')
+                    )
+                except Exception:
+                    legacy = []
+
+                if legacy:
+                    save_ledger(legacy)
+                    return legacy
+
+            return rows
+
+        except Exception:
+            # DB接続に失敗した場合はローカル保存へフォールバック
+            pass
+
     if not LEDGER.exists():
         return []
+
     try:
-        return json.loads(LEDGER.read_text(encoding='utf-8'))
+        return json.loads(
+            LEDGER.read_text(encoding='utf-8')
+        )
+
     except Exception:
         return []
 
-def save_ledger(rows):
-    LEDGER.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8')
 
+def save_ledger(rows):
+    rows = rows or []
+
+    if _db_enabled():
+        try:
+            _ensure_ledger_table()
+
+            with _db_connect() as conn:
+                conn.execute(
+                    "DELETE FROM performance_ledger"
+                )
+
+                for row in rows:
+                    row_id = str(
+                        row.get('id')
+                        or datetime.now().strftime('%Y%m%d%H%M%S%f')
+                    )
+
+                    conn.execute(
+                        """
+                        INSERT INTO performance_ledger
+                        (id, record)
+                        VALUES (%s, %s::jsonb)
+                        ON CONFLICT (id)
+                        DO UPDATE SET record = EXCLUDED.record
+                        """,
+                        (
+                            row_id,
+                            json.dumps(
+                                row,
+                                ensure_ascii=False
+                            ),
+                        ),
+                    )
+
+                conn.commit()
+
+            # DB保存成功後は旧ローカル台帳を削除
+            if LEDGER.exists():
+                try:
+                    LEDGER.unlink()
+                except Exception:
+                    pass
+
+            return
+
+        except Exception:
+            # DB接続に失敗した場合はローカル保存
+            pass
+
+    LEDGER.write_text(
+        json.dumps(
+            rows,
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding='utf-8'
+    )
 def ledger_stats(rows):
     bets = sum(float(r.get('investment', 0) or 0) for r in rows)
     payouts = sum(float(r.get('payout', 0) or 0) for r in rows)
