@@ -16,7 +16,48 @@
 .status{margin-top:12px;padding:11px;border-radius:10px;background:#0b1c2d;color:#bfe8ff;font-size:13px}.scenario{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #1d334a;text-align:left;font-size:13px}th{color:var(--muted);font-weight:600}.tag{padding:5px 8px;border-radius:7px;font-weight:800;font-size:11px}.good{background:#123d2a;color:#73e4a0}.mid{background:#4a3a13;color:#ffd66d}.low{background:#431b24;color:#ff8290}
 .footer{color:#71869a;font-size:11px;text-align:center;padding:18px}
-@media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:auto}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}}
+.race-buttons{
+  grid-column:1/-1;
+  display:grid;
+  grid-template-columns:repeat(12,1fr);
+  gap:7px;
+  margin-top:4px;
+}
+
+.race-btn{
+  padding:9px 4px;
+  border-radius:9px;
+  border:1px solid #29445e;
+  background:#091727;
+  color:#c9d8e7;
+  font-size:13px;
+  font-weight:800;
+  cursor:pointer;
+}
+
+.race-btn.active{
+  background:linear-gradient(135deg,#1787e8,#3ab7ff);
+  color:white;
+  border-color:#4dbbff;
+}
+
+@media(max-width:850px){
+  .race-buttons{
+    grid-template-columns:repeat(6,1fr);
+  }
+}
+
+@media(max-width:520px){
+  .race-buttons{
+    grid-template-columns:repeat(6,1fr);
+  }
+
+  .race-btn{
+    padding:10px 3px;
+    font-size:12px;
+  }
+}
+ @media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:auto}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -31,6 +72,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
  
  
 <select id="race">
+<div id="raceButtons" class="race-buttons"></div>
 <option>1R</option>
 <option>2R</option>
 <option>3R</option>
@@ -296,6 +338,42 @@ function setupDates(){
  }
  el.value=dateString(today);
 }
+function renderRaceButtons(){
+  const container=document.getElementById('raceButtons');
+  const raceSelect=document.getElementById('race');
+
+  if(!container || !raceSelect) return;
+
+  container.innerHTML='';
+
+  for(let i=1;i<=12;i++){
+    const btn=document.createElement('button');
+
+    btn.type='button';
+    btn.className='race-btn';
+    btn.textContent=i+'R';
+
+    if(Number(raceSelect.value.replace(/[^0-9]/g,''))===i){
+      btn.classList.add('active');
+    }
+
+    btn.onclick=()=>{
+      raceSelect.value=i+'R';
+
+      document.querySelectorAll('.race-btn').forEach(x=>{
+        x.classList.remove('active');
+      });
+
+      btn.classList.add('active');
+
+      document.getElementById('settleBtn').disabled=true;
+      document.getElementById('reason').textContent=
+        i+'Rを選択しました。「AI予想」を押してください。';
+    };
+
+    container.appendChild(btn);
+  }
+}
 function getParams(){
  return {
   date:document.getElementById('date').value,
@@ -358,12 +436,23 @@ async function settlePrediction(){
   loadPerformanceStatus();
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
-document.getElementById('date').addEventListener('change',loadSchedule);
+  document.getElementById('date').addEventListener('change',loadSchedule);
+
+  document.getElementById('race').addEventListener('change',renderRaceButtons);
+
+  document.getElementById('stadium').addEventListener('change',()=>{
+    renderRaceButtons();
+
+  document.getElementById('settleBtn').disabled=true;
+  document.getElementById('reason').textContent=
+    '開催場を変更しました。「AI予想」を押してください。';
+});
 setupDates();
 loadSchedule();
+renderRaceButtons();
 loadLearningStatus();
 loadPerformanceStatus();
- 
+
 </script>
 </body>
 </html>
