@@ -45,11 +45,93 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <section class="panel" style="margin-top:16px"><h2>3連単・期待値候補</h2>
 <table><thead><tr><th>順位</th><th>買い目</th><th>推定確率</th><th>オッズ</th><th>期待倍率</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
 </section>
+ <section class="panel" style="margin-top:16px">
+<h2>AI学習状況</h2>
+
+<div class="metrics">
+<div class="metric">
+<small>学習レース数</small>
+<b id="learnSamples">-</b>
+</div>
+
+<div class="metric">
+<small>的中数</small>
+<b id="learnHits">-</b>
+</div>
+
+<div class="metric">
+<small>的中率</small>
+<b id="learnRate">-</b>
+</div>
+
+<div class="metric">
+<small>モデル温度</small>
+<b id="learnTemp">-</b>
+</div>
+</div>
+
+<div style="margin-top:16px">
+<div style="color:var(--muted);margin-bottom:10px">
+AIが現在重視している特徴
+</div>
+
+<div id="learnWeights"></div>
+</div>
+</section>
 <div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
 </div>
 
 <script>
 let lastPrediction=null;
+ async function loadLearningStatus(){
+ try{
+  const r=await fetch('/api/model');
+  const x=await r.json();
+  if(!r.ok||!x.ok) return;
+
+  const m=x.model||{};
+  const samples=Number(m.samples||0);
+  const hits=Number(m.hits||0);
+  const rate=samples?((hits/samples)*100).toFixed(1):'0.0';
+
+  document.getElementById('learnSamples').textContent=samples+'回';
+  document.getElementById('learnHits').textContent=hits+'回';
+  document.getElementById('learnRate').textContent=rate+'%';
+  document.getElementById('learnTemp').textContent=Number(m.temperature||0).toFixed(2);
+
+  const names={
+   nation:'全国勝率',
+   local:'当地勝率',
+   motor:'モーター',
+   st:'ST',
+   exhibition:'展示タイム',
+   exhibition_st:'展示ST',
+   history:'過去実績'
+  };
+
+  const weights=m.weights||{};
+  const max=Math.max(...Object.values(weights).map(Number),0.01);
+
+  document.getElementById('learnWeights').innerHTML=
+   Object.entries(names).map(([key,name])=>{
+    const w=Number(weights[key]||0);
+    const width=Math.min(100,(w/max)*100);
+    return `
+     <div style="margin:10px 0">
+      <div style="display:flex;justify-content:space-between;font-size:13px">
+       <span>${name}</span>
+       <b>${(w*100).toFixed(1)}%</b>
+      </div>
+      <div class="bar">
+       <i style="width:${width}%"></i>
+      </div>
+     </div>
+    `;
+   }).join('');
+ }catch(e){
+  console.error('学習状況取得エラー',e);
+ }
+}
 
 function dateString(d){
  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
@@ -116,6 +198,7 @@ async function settlePrediction(){
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
 setupDates();
+loadLearningStatus();
 </script>
 </body>
 </html>
