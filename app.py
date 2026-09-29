@@ -305,11 +305,11 @@ def scenario(boats, before):
     top = max(boats, key=lambda x:x['score'])
     wind = before.get('wind') or 0
     if top['boat'] == 1 and wind <= 4:
-        return 'éã'
+        return '逃げ'
     center = max(boats[2:4], key=lambda x:x['score'])
     if center['score'] >= boats[0]['score'] - 4:
-        return 'ã¾ããã»ã¾ããå·®ã'
-    return 'å·®ã'
+        return 'まくり・まくり差し'
+    return '差し'
 
 def _softmax(values, temperature=12.0):
     if not values:
@@ -341,8 +341,8 @@ def build_bets(boats, odds, fixed):
             'probability': round(prob, 6),
             'odds': odd,
             'ev': round(ev, 4) if ev is not None else None,
-            'judgement': 'ãªããºæªåå¾' if ev is None else (
-                'åè£' if ev >= 1 else ('æé' if ev >= .8 else 'è¦éã')
+            'judgement': 'オッズ未取得' if ev is None else (
+                '候補' if ev >= 1 else ('慎重' if ev >= .8 else '見送り')
             )
         })
     combos.sort(key=lambda x: x['ev'] if x['ev'] is not None else -1, reverse=True)
