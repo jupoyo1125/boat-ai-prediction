@@ -43,6 +43,7 @@ def normalize_date(value):
 def get_active_stadiums(date):
     """
     指定日の公式BOAT RACE開催場を取得する
+    公式ページ上の競走場別リンク(jcd)から判定する
     """
     date = normalize_date(date)
 
@@ -51,35 +52,32 @@ def get_active_stadiums(date):
 
     soup = BeautifulSoup(html, 'html.parser')
 
+    active_jcd = set()
+
+    # 公式ページ内の競走場別リンクを確認
+    for link in soup.find_all('a', href=True):
+
+        href = link.get('href', '')
+
+        for jcd in STADIUMS.keys():
+
+            if (
+                f'jcd={jcd}' in href
+                or f'jcd%3D{jcd}' in href
+            ):
+                active_jcd.add(jcd)
+
     active = []
 
-    # 公式ページ内の各競走場ブロックを確認
     for jcd, name in STADIUMS.items():
 
-        found = False
-
-        # 競走場名を含む要素をすべて確認
-        for tag in soup.find_all(string=lambda s: s and name in s):
-
-            text = tag.parent.parent.get_text(
-                ' ',
-                strip=True
-            ) if tag.parent and tag.parent.parent else str(tag)
-
-            # 「競走場名 - 」は非開催
-            # 「競走場名 4日目」などは開催
-            if name in text and f'{name} -' not in text:
-                found = True
-                break
-
-        if found:
+        if jcd in active_jcd:
             active.append({
                 'stadium': jcd,
                 'venue': name
             })
 
     return active
-
 @app.get('/api/schedule')
 def api_schedule():
 
