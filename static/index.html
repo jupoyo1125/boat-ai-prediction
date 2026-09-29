@@ -16,6 +16,55 @@
 .status{margin-top:12px;padding:11px;border-radius:10px;background:#0b1c2d;color:#bfe8ff;font-size:13px}.scenario{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #1d334a;text-align:left;font-size:13px}th{color:var(--muted);font-weight:600}.tag{padding:5px 8px;border-radius:7px;font-weight:800;font-size:11px}.good{background:#123d2a;color:#73e4a0}.mid{background:#4a3a13;color:#ffd66d}.low{background:#431b24;color:#ff8290}
 .footer{color:#71869a;font-size:11px;text-align:center;padding:18px}
+.race-list{
+  margin-top:16px;
+}
+
+.race-venue{
+  margin-top:14px;
+  padding:14px;
+  background:var(--panel2);
+  border:1px solid #24415c;
+  border-radius:14px;
+}
+
+.race-venue-title{
+  font-size:16px;
+  font-weight:900;
+  margin-bottom:10px;
+}
+
+.race-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:7px;
+}
+
+.race-list-btn{
+  padding:10px 4px;
+  border-radius:9px;
+  border:1px solid #29445e;
+  background:#091727;
+  color:var(--text);
+  font-size:13px;
+  font-weight:800;
+}
+
+.race-list-btn:hover{
+  background:#114b73;
+  border-color:#38aaff;
+}
+
+@media(max-width:520px){
+  .race-grid{
+    grid-template-columns:repeat(6,1fr);
+  }
+
+  .race-list-btn{
+    font-size:12px;
+    padding:9px 2px;
+  }
+}
 .race-buttons{
   grid-column:1/-1;
   display:grid;
@@ -68,7 +117,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <div class="sub">予想を保存し、レース結果を取得すると学習データへ反映します。</div>
 <div class="controls">
 <select id="date"></select>
- <select id="stadium"><option value="">開催場を読み込み中...</option></select>
+<select id="stadium"><option value="">開催場を読み込み中...</option></select>
  
  
 <select id="race">
@@ -100,6 +149,13 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 </div><div class="status" id="reason">「AI予想」を押してください。</div><div class="scenario"><span class="pill active">予想→保存→結果→学習</span></div></section>
 </div>
 
+<section class="panel race-list">
+  <h2>開催中レース一覧</h2>
+  <div class="status" id="raceListStatus">
+    開催情報を取得中…
+  </div>
+  <div id="raceList"></div>
+</section>
 <section class="panel" style="margin-top:16px"><h2>3連単・期待値候補</h2>
 <table><thead><tr><th>順位</th><th>買い目</th><th>推定確率</th><th>オッズ</th><th>期待倍率</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
 </section>
@@ -193,6 +249,66 @@ AIが現在重視している特徴
 <script>
 let lastPrediction=null;
  async function loadSchedule(){
+function renderAllRaces(venues){
+  const container=document.getElementById('raceList');
+  const status=document.getElementById('raceListStatus');
+
+  if(!container || !status) return;
+
+  container.innerHTML='';
+
+  if(!venues || !venues.length){
+    status.textContent='この日の開催場はありません。';
+    return;
+  }
+
+  status.textContent=
+    `${venues.length}場・最大${venues.length*12}レースを表示しています。`;
+
+  venues.forEach(v=>{
+    const venue=document.createElement('div');
+    venue.className='race-venue';
+
+    const title=document.createElement('div');
+    title.className='race-venue-title';
+    title.textContent=v.venue;
+
+    const grid=document.createElement('div');
+    grid.className='race-grid';
+
+    for(let race=1;race<=12;race++){
+      const btn=document.createElement('button');
+
+      btn.type='button';
+      btn.className='race-list-btn';
+      btn.textContent=race+'R';
+
+      btn.onclick=()=>{
+        const stadiumSelect=document.getElementById('stadium');
+        const raceSelect=document.getElementById('race');
+
+        stadiumSelect.value=v.stadium;
+        raceSelect.value=race+'R';
+
+        document.getElementById('settleBtn').disabled=true;
+
+        document.getElementById('reason').textContent=
+          `${v.venue} ${race}Rを選択しました。「AI予想」を押してください。`;
+
+        window.scrollTo({
+          top:0,
+          behavior:'smooth'
+        });
+      };
+
+      grid.appendChild(btn);
+    }
+
+    venue.appendChild(title);
+    venue.appendChild(grid);
+    container.appendChild(venue);
+  });
+}
   const date=document.getElementById('date').value;
   const stadium=document.getElementById('stadium');
 
@@ -216,6 +332,7 @@ let lastPrediction=null;
     }
 
     x.venues.forEach(v=>{
+      renderAllRaces(x.venues);
       const option=document.createElement('option');
       option.value=v.stadium;
       option.textContent=v.venue;
