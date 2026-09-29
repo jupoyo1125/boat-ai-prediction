@@ -37,7 +37,80 @@ STADIUMS = {
     '13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山',
     '19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'
 }
+def normalize_date(value):
+    return str(value or datetime.now().strftime('%Y%m%d')).replace('/', '').replace('-', '')
 
+
+def get_active_stadiums(date):
+    """
+    指定日の公式BOAT RACE開催場を取得する
+    """
+    date = normalize_date(date)
+
+    url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date}'
+
+    html = get(url)
+
+    soup = BeautifulSoup(html, 'html.parser')
+
+    active = []
+
+    for jcd, name in STADIUMS.items():
+
+        # 公式ページ内に競走場名が存在するか確認
+        found = soup.find(string=lambda s: s and name in s)
+
+        if not found:
+            continue
+
+        # 競走場名の周辺テキストを取得
+        parent = found.parent
+
+        text = parent.parent.get_text(
+            ' ',
+            strip=True
+        ) if parent and parent.parent else str(found)
+
+        # 「-」のみの場合は非開催として扱う
+        if text.strip() == name:
+            continue
+
+        active.append({
+            'stadium': jcd,
+            'venue': name
+        })
+
+    return active
+
+
+@app.get('/api/schedule')
+def api_schedule():
+
+    date = normalize_date(
+        request.args.get('date')
+    )
+
+    try:
+
+        venues = get_active_stadiums(date)
+
+        return jsonify({
+            'ok': True,
+            'date': date,
+            'venues': venues,
+            'count': len(venues)
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            'ok': False,
+            'date': date,
+            'error': (
+                '開催情報を取得できませんでした: '
+                f'{type(e).__name__}: {e}'
+            )
+        }), 502
 def load_ledger():
     if not LEDGER.exists():
         return []
