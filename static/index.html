@@ -27,32 +27,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <div class="sub">予想を保存し、レース結果を取得すると学習データへ反映します。</div>
 <div class="controls">
 <select id="date"></select>
-<select id="stadium">
-<option value="01">桐生</option>
-<option value="02">戸田</option>
-<option value="03">江戸川</option>
-<option value="04">平和島</option>
-<option value="05">多摩川</option>
-<option value="06">浜名湖</option>
-<option value="07">蒲郡</option>
-<option value="08">常滑</option>
-<option value="09">津</option>
-<option value="10">三国</option>
-<option value="11">びわこ</option>
-<option value="12">住之江</option>
-<option value="13">尼崎</option>
-<option value="14">鳴門</option>
-<option value="15">丸亀</option>
-<option value="16">児島</option>
-<option value="17">宮島</option>
-<option value="18">徳山</option>
-<option value="19">下関</option>
-<option value="20">若松</option>
-<option value="21">芦屋</option>
-<option value="22">福岡</option>
-<option value="23">唐津</option>
-<option value="24">大村</option>
-</select>
+ <select id="stadium"><option value="">開催場を読み込み中...</option></select>
+ 
  
 <select id="race">
 <option>1R</option>
@@ -122,6 +98,45 @@ AIが現在重視している特徴
 
 <script>
 let lastPrediction=null;
+ async function loadSchedule(){
+  const date=document.getElementById('date').value;
+  const stadium=document.getElementById('stadium');
+
+  stadium.disabled=true;
+  stadium.innerHTML='<option value="">開催場を取得中...</option>';
+
+  try{
+    const r=await fetch('/api/schedule?date='+encodeURIComponent(date));
+    const x=await r.json();
+
+    if(!r.ok || !x.ok){
+      throw new Error(x.error || '開催情報の取得に失敗しました');
+    }
+
+    stadium.innerHTML='';
+
+    if(!x.venues || !x.venues.length){
+      stadium.innerHTML='<option value="">この日は開催場がありません</option>';
+      document.getElementById('analyzeBtn').disabled=true;
+      return;
+    }
+
+    x.venues.forEach(v=>{
+      const option=document.createElement('option');
+      option.value=v.stadium;
+      option.textContent=v.venue;
+      stadium.appendChild(option);
+    });
+
+    stadium.disabled=false;
+    document.getElementById('analyzeBtn').disabled=false;
+
+  }catch(e){
+    stadium.innerHTML='<option value="">開催情報を取得できません</option>';
+    document.getElementById('analyzeBtn').disabled=true;
+    console.error(e);
+  }
+}
  async function loadLearningStatus(){
  try{
   const r=await fetch('/api/model');
@@ -236,8 +251,11 @@ async function settlePrediction(){
   lastPrediction=null;
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
+document.getElementById('date').addEventListener('change',loadSchedule);
 setupDates();
+loadSchedule();
 loadLearningStatus();
+ 
 </script>
 </body>
 </html>
