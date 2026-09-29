@@ -39,8 +39,7 @@ STADIUMS = {
 }
 def normalize_date(value):
     return str(value or datetime.now().strftime('%Y%m%d')).replace('/', '').replace('-', '')
-
-
+    
 def get_active_stadiums(date):
     """
     指定日の公式BOAT RACE開催場を取得する
@@ -48,40 +47,38 @@ def get_active_stadiums(date):
     date = normalize_date(date)
 
     url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date}'
-
     html = get(url)
 
     soup = BeautifulSoup(html, 'html.parser')
 
     active = []
 
+    # 公式ページ内の各競走場ブロックを確認
     for jcd, name in STADIUMS.items():
 
-        # 公式ページ内に競走場名が存在するか確認
-        found = soup.find(string=lambda s: s and name in s)
+        found = False
 
-        if not found:
-            continue
+        # 競走場名を含む要素をすべて確認
+        for tag in soup.find_all(string=lambda s: s and name in s):
 
-        # 競走場名の周辺テキストを取得
-        parent = found.parent
+            text = tag.parent.parent.get_text(
+                ' ',
+                strip=True
+            ) if tag.parent and tag.parent.parent else str(tag)
 
-        text = parent.parent.get_text(
-            ' ',
-            strip=True
-        ) if parent and parent.parent else str(found)
+            # 「競走場名 - 」は非開催
+            # 「競走場名 4日目」などは開催
+            if name in text and f'{name} -' not in text:
+                found = True
+                break
 
-        # 「-」のみの場合は非開催として扱う
-        if text.strip() == name:
-            continue
-
-        active.append({
-            'stadium': jcd,
-            'venue': name
-        })
+        if found:
+            active.append({
+                'stadium': jcd,
+                'venue': name
+            })
 
     return active
-
 
 @app.get('/api/schedule')
 def api_schedule():
