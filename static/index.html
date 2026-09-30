@@ -121,7 +121,6 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
  
  
 <select id="race">
-<div id="raceButtons" class="race-buttons"></div>
 <option>1R</option>
 <option>2R</option>
 <option>3R</option>
@@ -135,6 +134,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <option>11R</option>
 <option>12R</option>
 </select>
+
+<div id="raceButtons" class="race-buttons"></div>
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
 <input id="investment" type="number" min="0" step="100" value="1000" placeholder="1レース投資額">
 <button id="analyzeBtn" onclick="analyze()">AI予想</button>
@@ -155,6 +156,15 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
     開催情報を取得中…
   </div>
   <div id="raceList"></div>
+<div style="margin-top:14px">
+  <button id="batchAnalyzeBtn" onclick="batchAnalyze()">
+    🚀 今日の全レースをAI分析
+  </button>
+</div>
+
+<div class="status" id="batchStatus">
+  一括分析はまだ実行していません。
+</div>
 </section>
 <section class="panel" style="margin-top:16px"><h2>3連単・期待値候補</h2>
 <table><thead><tr><th>順位</th><th>買い目</th><th>推定確率</th><th>オッズ</th><th>期待倍率</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
@@ -248,7 +258,7 @@ AIが現在重視している特徴
 
 <script>
 let lastPrediction=null;
- async function loadSchedule(){
+ 
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
   const status=document.getElementById('raceListStatus');
@@ -261,6 +271,7 @@ function renderAllRaces(venues){
     status.textContent='この日の開催場はありません。';
     return;
   }
+  async function loadSchedule(){
 
   status.textContent=
     `${venues.length}場・最大${venues.length*12}レースを表示しています。`;
@@ -330,9 +341,9 @@ function renderAllRaces(venues){
       document.getElementById('analyzeBtn').disabled=true;
       return;
     }
-
+    renderAllRaces(x.venues
     x.venues.forEach(v=>{
-      renderAllRaces(x.venues);
+      );
       const option=document.createElement('option');
       option.value=v.stadium;
       option.textContent=v.venue;
@@ -552,6 +563,141 @@ async function settlePrediction(){
   loadLearningStatus();
   loadPerformanceStatus();
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
+}
+async function batchAnalyze(){
+
+  const btn=document.getElementById('batchAnalyzeBtn');
+  const status=document.getElementById('batchStatus');
+
+  if(!btn || !status) return;
+
+  const date=document.getElementById('date').value;
+
+  const venueOptions=[
+    ...document.getElementById('stadium').options
+  ].filter(x=>x.value);
+
+  if(!venueOptions.length){
+    status.textContent='開催場がありません。';
+    return;
+  }
+
+  const total=venueOptions.length*12;
+  let completed=0;
+  let success=0;
+  let failed=0;
+
+  btn.disabled=true;
+
+  status.textContent=
+    `一括AI分析を開始します。0 / ${total}レース`;
+
+  try{
+
+    for(const option of venueOptions){
+
+      const stadium=option.value;
+      const venue=option.textContent;
+
+      for(let race=1;race<=12;race++){
+
+        status.textContent=
+          `分析中：${venue} ${race}R　`+
+          `${completed} / ${total}レース`;
+
+        try{
+
+          const q=new URLSearchParams({
+            date:date,
+            stadium:stadium,
+            race:race,
+            fixed:'none',
+            history_days:'30'
+          });
+
+          const r=await fetch('/api/analyze?'+q.toString());
+          const x=await r.json();
+
+          if(!r.ok || !x.ok){
+            throw new Error(
+              x.error || 'AI分析に失敗しました'
+            );
+          }
+
+          const firstBet=
+            x.bets && x.bets.length
+              ? String(x.bets[0].bet).replace(/-/g,'')
+              : '';
+
+          const investment=
+            Number(
+              document.getElementById('investment').value || 1000
+            );
+
+          const saveR=await fetch(
+            '/api/performance',
+            {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json'
+              },
+              body:JSON.stringify({
+                date:date,
+                stadium:stadium,
+                race:race,
+                combo:firstBet,
+                predicted_first:x.main,
+                features:x.features||{},
+                investment:investment,
+                payout:0,
+                note:'一括AI分析'
+              })
+            }
+          );
+
+          const saved=await saveR.json();
+
+          if(!saveR.ok || !saved.ok){
+            throw new Error(
+              saved.error || '予想保存に失敗しました'
+            );
+          }
+
+          success++;
+
+        }catch(e){
+
+          console.error(
+            `${venue} ${race}R`,
+            e
+          );
+
+          failed++;
+        }
+
+        completed++;
+
+      }
+
+    }
+
+    status.textContent=
+      `一括AI分析完了：${success}レース成功 / `+
+      `${failed}レース取得失敗 / `+
+      `合計${completed}レース`;
+
+    loadPerformanceStatus();
+
+  }catch(e){
+
+    status.textContent=
+      '一括分析エラー：'+e.message;
+
+  }finally{
+
+    btn.disabled=false;
+
+  }
 }
   document.getElementById('date').addEventListener('change',loadSchedule);
 
