@@ -705,12 +705,19 @@ def api_settle_prediction():
             )
 
         if predicted_features:
-            state, hit = learn_from_features(
-                load_model(),
-                predicted_features,
-                actual_first,
-                predicted_first
+            actual_features = (
+                features.get(str(actual_first))
+                or features.get(actual_first)
+                or {}
             )
+
+    state, hit = learn_from_features(
+        load_model(),
+        predicted_features,
+        actual_first,
+        predicted_first,
+        actual_features
+    )
         else:
             predicted_order = [int(x) for x in str(row.get('combo','')) if x.isdigit()]
             state, hit = learn_from_record(
