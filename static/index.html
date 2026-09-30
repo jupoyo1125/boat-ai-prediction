@@ -611,6 +611,7 @@ async function batchAnalyze(){
   }
 
   const total=venueOptions.length*12;
+
   let completed=0;
   let success=0;
   let failed=0;
@@ -629,8 +630,10 @@ async function batchAnalyze(){
 
       for(let race=1;race<=12;race++){
 
+        completed++;
+
         status.textContent=
-          `分析中：${venue} ${race}R　`+
+          `🤖 分析中：${venue} ${race}R　`+
           `${completed} / ${total}レース`;
 
         try{
@@ -638,12 +641,15 @@ async function batchAnalyze(){
           const q=new URLSearchParams({
             date:date,
             stadium:stadium,
-            race:race,
+            race:String(race),
             fixed:'none',
             history_days:'30'
           });
 
-          const r=await fetch('/api/analyze?'+q.toString());
+          const r=await fetch(
+            '/api/analyze?'+q.toString()
+          );
+
           const x=await r.json();
 
           if(!r.ok || !x.ok){
@@ -670,15 +676,25 @@ async function batchAnalyze(){
                 'Content-Type':'application/json'
               },
               body:JSON.stringify({
+
                 date:date,
+
                 stadium:stadium,
+
                 race:race,
+
                 combo:firstBet,
+
                 predicted_first:x.main,
-                features:x.features||{},
+
+                features:x.features || {},
+
                 investment:investment,
+
                 payout:0,
+
                 note:'一括AI分析'
+
               })
             }
           );
@@ -695,24 +711,32 @@ async function batchAnalyze(){
 
         }catch(e){
 
+          failed++;
+
           console.error(
             `${venue} ${race}R`,
             e
           );
 
-          failed++;
         }
 
-        completed++;
+        /*
+         * 連続アクセスを少し間隔を空ける
+         * 公式サイトへの負荷を抑えるため
+         */
+        await new Promise(
+          resolve=>setTimeout(resolve,300)
+        );
 
       }
 
     }
 
     status.textContent=
-      `一括AI分析完了：${success}レース成功 / `+
-      `${failed}レース取得失敗 / `+
-      `合計${completed}レース`;
+      `✅ 一括AI分析完了\n`+
+      `成功：${success}レース\n`+
+      `失敗：${failed}レース\n`+
+      `合計：${completed}レース`;
 
     loadPerformanceStatus();
 
