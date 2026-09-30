@@ -169,30 +169,89 @@ def learn_from_features(
     state,
     predicted_features,
     actual_first,
-    predicted_first
+    predicted_first,
+    actual_features=None
 ):
+    """
+    AI予想と実際の1着艇を比較して学習する。
+
+    predicted_features:
+        AIが本命と判断した艇の特徴
+
+    actual_features:
+        実際に1着だった艇の特徴
+
+    actual_featuresが渡されない場合は、
+    従来方式の学習を行う。
+    """
+
     hit = int(predicted_first == actual_first)
 
     state["samples"] += 1
     state["hits"] += hit
 
-    delta = 0.010 if hit else -0.006
+    weights = state.get("weights", {})
 
-    for key in state["weights"]:
-        value = float(
-            predicted_features.get(key, 50.0)
+    # --------------------------------------------------
+    # 新しい比較学習
+    # --------------------------------------------------
+    if (
+        isinstance(predicted_features, dict)
+        and isinstance(actual_features, dict)
+        and actual_features
+    ):
+        learning_rate = 0.008
+
+        for key in weights:
+            predicted_value = float(
+                predicted_features.get(key, 50.0)
+            )
+
+            actual_value = float(
+                actual_features.get(key, 50.0)
+            )
+
+            # 実際の1着艇の方が高ければ、
+            # その特徴を少し重視する。
+            difference = (
+                actual_value - predicted_value
+            ) / 100.0
+
+            weights[key] += (
+                learning_rate * difference
+            )
+
+        state["weights"] = normalize_weights(
+            weights
         )
 
-        centered = (value - 50.0) / 50.0
+    # --------------------------------------------------
+    # 従来方式
+    # actual_featuresがまだない場合の互換処理
+    # --------------------------------------------------
+    else:
+        delta = 0.010 if hit else -0.006
 
-        state["weights"][key] += (
-            delta * centered
+        for key in weights:
+            value = float(
+                predicted_features.get(key, 50.0)
+            )
+
+            centered = (
+                value - 50.0
+            ) / 50.0
+
+            weights[key] += (
+                delta * centered
+            )
+
+        state["weights"] = normalize_weights(
+            weights
         )
 
-    state["weights"] = normalize_weights(
-        state["weights"]
-    )
-
+    # --------------------------------------------------
+    # 温度パラメータも学習
+    # --------------------------------------------------
     temperature = float(
         state.get("temperature", 12.0)
     )
@@ -202,14 +261,16 @@ def learn_from_features(
     )
 
     state["temperature"] = round(
-        max(8.0, min(24.0, temperature)),
+        max(
+            8.0,
+            min(24.0, temperature)
+        ),
         4
     )
 
     save(state)
 
     return state, bool(hit)
-
 
 def learn_from_record(
     state,
