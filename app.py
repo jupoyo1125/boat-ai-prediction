@@ -560,6 +560,34 @@ def feature_snapshot(boats):
 def api_performance():
     rows = load_ledger()
     return jsonify({'ok': True, 'stats': ledger_stats(rows), 'records': rows[-100:]})
+@app.get('/api/saved_prediction')
+def api_saved_prediction():
+    date = str(request.args.get('date','')).replace('/','').replace('-','')
+    stadium = str(request.args.get('stadium',''))
+    race = int(request.args.get('race','1'))
+
+    rows = load_ledger()
+
+    candidates = [
+        r for r in rows
+        if str(r.get('date','')).replace('/','').replace('-','') == date
+        and str(r.get('stadium','')) == stadium
+        and int(r.get('race',0) or 0) == race
+    ]
+
+    if not candidates:
+        return jsonify({
+            'ok': False,
+            'error': '保存済みAI予想がありません'
+        }), 404
+
+    row = candidates[-1]
+
+    return jsonify({
+        'ok': True,
+        'record': row,
+        'bets': row.get('bets') or []
+    })
 
 @app.post('/api/performance')
 def api_performance_add():
@@ -588,6 +616,7 @@ def api_performance_add():
             'learned': False,
             'predicted_first': int(data.get('predicted_first')) if str(data.get('predicted_first','')).isdigit() else None,
             'features': data.get('features') or {},
+            'bets': data.get('bets') or [],
             'note': str(data.get('note',''))[:300]
         }
         rows = load_ledger()
