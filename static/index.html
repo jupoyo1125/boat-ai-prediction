@@ -160,6 +160,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
   <button id="batchAnalyzeBtn" onclick="batchAnalyze()">
     🚀 今日の全レースをAI分析
   </button>
+  <button id="batchSettleBtn" class="secondary" onclick="batchSettle()">
+  📊 完了レースを一括・結果取得＆学習
+</button>
 </div>
 
 <div class="status" id="batchStatus">
@@ -750,6 +753,129 @@ async function batchAnalyze(){
     btn.disabled=false;
 
   }
+}
+  async function batchSettle(){
+
+  const btn=document.getElementById('batchSettleBtn');
+  const status=document.getElementById('batchStatus');
+
+  if(!btn || !status) return;
+
+  const date=document.getElementById('date').value;
+
+  const venueOptions=[
+    ...document.getElementById('stadium').options
+  ].filter(x=>x.value);
+
+  if(!venueOptions.length){
+    status.textContent='開催場がありません。';
+    return;
+  }
+
+  const total=venueOptions.length*12;
+  let completed=0;
+  let learned=0;
+  let pending=0;
+  let failed=0;
+
+  btn.disabled=true;
+
+  status.textContent=
+    `📊 一括結果取得・学習を開始します。0 / ${total}レース`;
+
+  try{
+
+    for(const option of venueOptions){
+
+      const stadium=option.value;
+      const venue=option.textContent;
+
+      for(let race=1;race<=12;race++){
+
+        completed++;
+
+        status.textContent=
+          `📊 結果確認：${venue} ${race}R `+
+          `${completed} / ${total}レース`;
+
+        try{
+
+          const r=await fetch(
+            '/api/settle_prediction',
+            {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json'
+              },
+              body:JSON.stringify({
+                date:date,
+                stadium:stadium,
+                race:race
+              })
+            }
+          );
+
+          const x=await r.json();
+
+          if(r.ok && x.ok){
+
+            learned++;
+
+          }else if(r.status===404){
+
+            pending++;
+
+          }else{
+
+            failed++;
+
+            console.error(
+              `${venue} ${race}R`,
+              x
+            );
+
+          }
+
+        }catch(e){
+
+          failed++;
+
+          console.error(
+            `${venue} ${race}R`,
+            e
+          );
+
+        }
+
+        await new Promise(
+          resolve=>setTimeout(resolve,300)
+        );
+
+      }
+
+    }
+
+    status.textContent=
+      `✅ 一括結果取得・学習完了\n`+
+      `学習：${learned}レース\n`+
+      `未処理：${pending}レース\n`+
+      `失敗：${failed}レース\n`+
+      `確認：${completed}レース`;
+
+    loadLearningStatus();
+    loadPerformanceStatus();
+
+  }catch(e){
+
+    status.textContent=
+      '一括学習エラー：'+e.message;
+
+  }finally{
+
+    btn.disabled=false;
+
+  }
+
 }
   document.getElementById('date').addEventListener('change',loadSchedule);
 
