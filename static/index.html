@@ -271,7 +271,6 @@ function renderAllRaces(venues){
     status.textContent='この日の開催場はありません。';
     return;
   }
-  async function loadSchedule(){
 
   status.textContent=
     `${venues.length}場・最大${venues.length*12}レースを表示しています。`;
@@ -320,42 +319,71 @@ function renderAllRaces(venues){
     container.appendChild(venue);
   });
 }
+
+async function loadSchedule(){
+
   const date=document.getElementById('date').value;
   const stadium=document.getElementById('stadium');
 
   stadium.disabled=true;
-  stadium.innerHTML='<option value="">開催場を取得中...</option>';
+  stadium.innerHTML=
+    '<option value="">開催場を取得中...</option>';
 
   try{
-    const r=await fetch('/api/schedule?date='+encodeURIComponent(date));
+
+    const r=await fetch(
+      '/api/schedule?date='+encodeURIComponent(date)
+    );
+
     const x=await r.json();
 
     if(!r.ok || !x.ok){
-      throw new Error(x.error || '開催情報の取得に失敗しました');
+      throw new Error(
+        x.error || '開催情報の取得に失敗しました'
+      );
     }
 
     stadium.innerHTML='';
 
     if(!x.venues || !x.venues.length){
-      stadium.innerHTML='<option value="">この日は開催場がありません</option>';
+
+      stadium.innerHTML=
+        '<option value="">この日は開催場がありません</option>';
+
       document.getElementById('analyzeBtn').disabled=true;
+
+      renderAllRaces([]);
+
       return;
     }
-    renderAllRaces(x.venues
+
+    renderAllRaces(x.venues);
+
     x.venues.forEach(v=>{
-      );
+
       const option=document.createElement('option');
+
       option.value=v.stadium;
       option.textContent=v.venue;
+
       stadium.appendChild(option);
+
     });
 
     stadium.disabled=false;
+
     document.getElementById('analyzeBtn').disabled=false;
 
   }catch(e){
-    stadium.innerHTML='<option value="">開催情報を取得できません</option>';
+
+    stadium.innerHTML=
+      '<option value="">開催情報を取得できません</option>';
+
     document.getElementById('analyzeBtn').disabled=true;
+
+    document.getElementById('raceListStatus').textContent=
+      '開催情報を取得できません。';
+
     console.error(e);
   }
 }
