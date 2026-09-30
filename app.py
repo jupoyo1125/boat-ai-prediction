@@ -75,7 +75,7 @@ def get_active_stadiums(date):
     """
     date = normalize_date(date)
 
-    url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date}'
+    url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date.replace("-", "")}'
     html = get(url)
 
     soup = BeautifulSoup(html, 'html.parser')
@@ -89,9 +89,11 @@ def get_active_stadiums(date):
 
         for jcd in STADIUMS.keys():
 
+            href_decoded = href.replace('%3D', '=')
+
             if (
-                f'jcd={jcd}' in href
-                or f'jcd%3D{jcd}' in href
+                f'?jcd={jcd}' in href_decoded
+                or f'&jcd={jcd}' in href_decoded
             ):
                 active_jcd.add(jcd)
 
