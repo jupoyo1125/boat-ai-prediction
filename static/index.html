@@ -777,6 +777,7 @@ async function batchAnalyze(){
   let learned=0;
   let pending=0;
   let failed=0;
+  let failedRaces=[];
 
   btn.disabled=true;
 
@@ -829,6 +830,10 @@ async function batchAnalyze(){
 
             failed++;
 
+            failedRaces.push(
+              `${venue} ${race}R`
+            );
+
             console.error(
               `${venue} ${race}R`,
               x
@@ -839,6 +844,10 @@ async function batchAnalyze(){
         }catch(e){
 
           failed++;
+
+          failedRaces.push(
+            `${venue} ${race}R`
+          );
 
           console.error(
             `${venue} ${race}R`,
@@ -860,8 +869,10 @@ async function batchAnalyze(){
       `学習：${learned}レース\n`+
       `未処理：${pending}レース\n`+
       `失敗：${failed}レース\n`+
-      `確認：${completed}レース`;
-
+      `確認：${completed}レース`+
+      (failedRaces.length
+        ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}`
+        : '');
     loadLearningStatus();
     loadPerformanceStatus();
 
