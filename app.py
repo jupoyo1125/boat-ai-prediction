@@ -676,19 +676,33 @@ def api_performance_add():
         ]
 
         if same_race:
-            # 既に保存済みなら新しい重複データを追加しない
-            existing = same_race[-1]
+            # 未学習の記録があれば、それを更新
+            unlearned = [
+                r for r in same_race
+                if not r.get('learned', False)
+            ]
 
-            if not existing.get('learned', False):
+            if unlearned:
+                existing = unlearned[-1]
                 existing.update(row)
                 save_ledger(rows)
 
+                return jsonify({
+                    'ok': True,
+                    'record': existing,
+                    'duplicate': True
+                })
+
+            # 過去の記録がすべて学習済みなら、
+            # 新しい予想として追加保存する
+            rows.append(row)
+            save_ledger(rows)
+
             return jsonify({
                 'ok': True,
-                'record': existing,
-                'duplicate': True
+                'record': row,
+                'duplicate': False
             })
-
         rows.append(row)
         save_ledger(rows)
         return jsonify({'ok': True, 'record': row, 'stats': ledger_stats(rows)})
