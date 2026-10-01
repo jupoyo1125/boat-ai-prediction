@@ -718,53 +718,140 @@ def api_learn():
 @app.post('/api/settle_prediction')
 def api_settle_prediction():
     data = request.get_json(force=True)
-    date = str(data.get('date') or datetime.now().strftime('%Y%m%d')).replace('/','').replace('-','')
-    jcd = str(data.get('stadium','15'))
-    race = int(data.get('race',1))
 
-    result_source = f'{BASE}resultlist?hd={date}&jcd={jcd}'
+    date = str(
+        data.get('date') or datetime.now().strftime('%Y%m%d')
+    ).replace('/', '').replace('-', '')
+
+    jcd = str(data.get('stadium', '15'))
+    race = int(data.get('race', 1))
+
+    # 指定レースの公式結果ページを直接取得
+    result_source = (
+        f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
+    )
+
     try:
         result_html = get(result_source)
-        result_rows = parse_resultlist(result_html)
-        result = next((r for r in result_rows if r['race'] == race), None)
-        if not result:
-            return jsonify({'ok':False,'error':'æå®ã¬ã¼ã¹ã®çµæãã¾ã åå¾ã§ãã¾ããã','source':result_source}),404
+        soup = BeautifulSoup(result_html, 'html.parser')
 
+        # ページ全体の文字を取得
+        text = soup.get_text(' ', strip=True)
+
+        # 記号を半角に統一
+        text = (
+            text.replace('－', '-')
+                .replace('−', '-')
+                .replace('―', '-')
+                .replace('ー', '-')
+                .replace('￥', '¥')
+        )
+
+        # 3連単の結果を取得
+        tri_match = re.search(
+            r'3連単\s*([1-6])\s*-\s*([1-6])\s*-\s*([1-6])',
+            text
+        )
+
+        if not tri_match:
+            return jsonify({
+                'ok': False,
+                'error': '指定レースの3連単結果を取得できませんでした。',
+                'source': result_source
+            }), 404
+
+        combo = ''.join(tri_match.groups())
+
+        # 同じ艇が重複していないか確認
+        if len(set(combo)) != 3:
+            return jsonify({
+                'ok': False,
+                'error': '取得した3連単結果が不正です。',
+                'source': result_source
+            }), 502
+
+        # 3連単の直後にある払戻金を取得
+        payout_match = re.search(
+            r'3連単\s*[1-6]\s*-\s*[1-6]\s*-\s*[1-6]'
+            r'.{0,100}?¥\s*([0-9][0-9,]*)',
+            text
+        )
+
+        official_payout = 0
+
+        if payout_match:
+            official_payout = int(
+                payout_match.group(1).replace(',', '')
+            )
+
+        result = {
+            'race': race,
+            'combo': combo,
+            'payout': official_payout
+        }
+
+        # 保存済みAI予想を取得
         rows = load_ledger()
+
         candidates = [
             r for r in rows
-            if str(r.get('date','')).replace('/','').replace('-','') == date
-            and str(r.get('stadium','')) == jcd
-            and int(r.get('race',0) or 0) == race
+            if str(r.get('date', '')).replace('/', '').replace('-', '') == date
+            and str(r.get('stadium', '')) == jcd
+            and int(r.get('race', 0) or 0) == race
             and not r.get('learned', False)
         ]
+
         if not candidates:
-            return jsonify({'ok':False,'error':'æªå­¦ç¿ã®äºæ³è¨é²ãè¦ã¤ããã¾ãããåã«AIäºæ³ãå®è¡ãã¦ãã ããã','result':result}),404
+            return jsonify({
+                'ok': False,
+                'error': '未学習の予想記録が見つかりません。先にAI予想を実行してください。',
+                'result': result,
+                'source': result_source
+            }), 404
 
         row = candidates[-1]
+
+        # 実際の結果を保存
         actual_combo = result['combo']
         row['actual_combo'] = actual_combo
 
-        # 予想した3連単が的中した場合のみ払戻を計上する。
-        # 公式払戻は100円あたりなので、投資額に応じて換算する。
-        row['hit'] = bool(row.get('combo') == actual_combo)
-        official_payout = float(result.get('payout') or 0)
-        investment = float(row.get('investment', 0) or 0)
+        # 的中判定
+        row['hit'] = bool(
+            row.get('combo') == actual_combo
+        )
 
+        investment = float(
+            row.get('investment', 0) or 0
+        )
+
+        # 払戻計算
         if row['hit'] and investment > 0:
-            row['payout'] = round(official_payout * (investment / 100.0), 2)
+            row['payout'] = round(
+                official_payout * (investment / 100.0),
+                2
+            )
         else:
             row['payout'] = 0
 
         row['official_payout'] = official_payout
-        row['profit'] = float(row.get('payout', 0) or 0) - investment
+        row['profit'] = (
+            float(row.get('payout', 0) or 0)
+            - investment
+        )
+
         row['settled'] = True
+
+        # 学習処理
         actual_first = int(actual_combo[0])
         predicted_first = row.get('predicted_first')
         features = row.get('features') or {}
 
         predicted_features = {}
-        if isinstance(features, dict) and predicted_first in range(1, 7):
+
+        if (
+            isinstance(features, dict)
+            and predicted_first in range(1, 7)
+        ):
             predicted_features = (
                 features.get(str(predicted_first))
                 or features.get(predicted_first)
@@ -785,6 +872,7 @@ def api_settle_prediction():
                 predicted_first,
                 actual_features
             )
+
         else:
             predicted_order = [
                 int(x)
@@ -797,9 +885,11 @@ def api_settle_prediction():
                 predicted_order,
                 actual_first
             )
-            
+
         row['learned'] = True
         row['learn_hit'] = bool(hit)
+
+        # データを保存
         save_ledger(rows)
 
         return jsonify({
@@ -810,9 +900,13 @@ def api_settle_prediction():
             'model': state,
             'source': result_source
         })
-    except Exception as e:
-        return jsonify({'ok':False,'error':str(e),'source':result_source}),502
 
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': str(e),
+            'source': result_source
+        }), 502
 @app.get('/api/backtest')
 def api_backtest():
     jcd = request.args.get('stadium','15')
