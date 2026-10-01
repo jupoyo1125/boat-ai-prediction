@@ -300,22 +300,21 @@ def learn_from_record(
     state.get("temperature", 12.0)
 )
 
-samples = max(int(state.get("samples", 1)), 1)
-hits = max(int(state.get("hits", 0)), 0)
+    samples = max(int(state.get("samples", 1)), 1)
+    hits = max(int(state.get("hits", 0)), 0)
 
-hit_rate = hits / samples
-baseline = 1.0 / 6.0
+    hit_rate = hits / samples
+    baseline = 1.0 / 6.0
 
-target = 12.0 - ((hit_rate - baseline) * 20.0)
-target = max(9.0, min(15.0, target))
+    target = 12.0 - ((hit_rate - baseline) * 20.0)
+    target = max(9.0, min(15.0, target))
 
-temperature += (target - temperature) * 0.02
+    temperature += (target - temperature) * 0.02
 
-state["temperature"] = round(
-    max(8.0, min(18.0, temperature)),
-    4
-)
-
+    state["temperature"] = round(
+        max(8.0, min(18.0, temperature)),
+        4
+    )
     save(state)
 
     return state, bool(hit)
