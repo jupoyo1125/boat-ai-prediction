@@ -623,31 +623,31 @@ def api_performance_add():
         }
         rows = load_ledger()
 
-# 同じ日付・場・レースの重複保存を防止
-same_race = [
-    r for r in rows
-    if str(r.get('date', '')) == str(row.get('date', ''))
-    and str(r.get('stadium', '')) == str(row.get('stadium', ''))
-    and int(r.get('race', 0)) == int(row.get('race', 0))
-]
+        # 同じ日付・場・レースの重複保存を防止
+        same_race = [
+            r for r in rows
+            if str(r.get('date', '')) == str(row.get('date', ''))
+            and str(r.get('stadium', '')) == str(row.get('stadium', ''))
+            and int(r.get('race', 0)) == int(row.get('race', 0))
+        ]
 
-if same_race:
-    # 既に保存済みなら新しい重複データを追加しない
-    existing = same_race[-1]
+        if same_race:
+            # 既に保存済みなら新しい重複データを追加しない
+            existing = same_race[-1]
 
-    if not existing.get('learned', False):
-        existing.update(row)
+            if not existing.get('learned', False):
+                existing.update(row)
+                save_ledger(rows)
+
+            return jsonify({
+                'ok': True,
+                'record': existing,
+                'duplicate': True
+            })
+
+        rows.append(row)
         save_ledger(rows)
-
-    return jsonify({
-        'ok': True,
-        'record': existing,
-        'duplicate': True
-    })
-
-rows.append(row)
-save_ledger(rows)
-        return jsonify({'ok':True,'record':row,'stats':ledger_stats(rows)})
+        return jsonify({'ok': True, 'record': row, 'stats': ledger_stats(rows)})
     except Exception as e:
         return jsonify({'ok':False,'error':str(e)}), 400
 
