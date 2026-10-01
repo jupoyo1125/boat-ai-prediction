@@ -363,24 +363,68 @@ def parse_before(html):
 def parse_resultlist(html):
     soup = BeautifulSoup(html, 'html.parser')
     rows = []
+
     for tr in soup.find_all('tr'):
-        cells = [x.get_text(' ', strip=True) for x in tr.find_all(['th','td'])]
+        cells = [
+            x.get_text(' ', strip=True)
+            for x in tr.find_all(['th', 'td'])
+        ]
+
         if not cells:
             continue
-        m = re.match(r'^(\d{1,2})R$', cells[0])
+
+        # 先頭セルからレース番号を取得
+        m = re.match(r'^(\d{1,2})R$', cells[0].strip())
         if not m:
             continue
-        txt = ' '.join(cells)
-        tri = re.search(r'([1-6])\s*[-ï¼]\s*([1-6])\s*[-ï¼]\s*([1-6])', txt)
-        if tri and len(set(tri.groups())) == 3:
-            payout = re.search(r'Â¥\s*([0-9,]+)', txt)
-            rows.append({
-                'race': int(m.group(1)),
-                'combo': ''.join(tri.groups()),
-                'payout': int(payout.group(1).replace(',', '')) if payout else None
-            })
-    return rows
 
+        race_no = int(m.group(1))
+        txt = ' '.join(cells)
+
+        # 全角記号を半角に統一
+        txt = (
+            txt.replace('－', '-')
+               .replace('−', '-')
+               .replace('―', '-')
+               .replace('ー', '-')
+               .replace('￥', '¥')
+        )
+
+        # 3連単の組み合わせを取得
+        tri = re.search(
+            r'([1-6])\s*-\s*([1-6])\s*-\s*([1-6])',
+            txt
+        )
+
+        if not tri:
+            continue
+
+        combo = ''.join(tri.groups())
+
+        # 同じ艇が重複している組み合わせは除外
+        if len(set(combo)) != 3:
+            continue
+
+        # 払戻金を取得
+        payout_match = re.search(
+            r'[¥\u00A5]\s*([0-9][0-9,]*)',
+            txt
+        )
+
+        payout = None
+
+        if payout_match:
+            payout = int(
+                payout_match.group(1).replace(',', '')
+            )
+
+        rows.append({
+            'race': race_no,
+            'combo': combo,
+            'payout': payout
+        })
+
+    return rows
 def historical_stats(jcd, days=30):
     days = max(1, min(int(days), 90))
     end = datetime.now().date()
