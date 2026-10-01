@@ -600,15 +600,74 @@ async function analyze(){
  finally{btn.disabled=false;}
 }
 function renderAnalysis(x){
- document.getElementById('boats').innerHTML=x.boats.map(b=>`
-  <div class="boat"><div class="num">${b.boat}号艇</div><div class="name">${b.name||'選手'}</div>
-  <div class="score">${Number(b.score).toFixed(1)}</div><div class="bar"><i style="width:${Math.min(100,Math.max(0,b.score))}%"></i></div>
-  <small>全国 ${b.nation??'-'} / 当地 ${b.local??'-'}<br>ST ${b.st??'-'} / 展示 ${b.exhibition??'-'}</small></div>`).join('');
- document.getElementById('main').textContent=x.main+'号艇'; document.getElementById('second').textContent=x.second+'号艇'; document.getElementById('hole').textContent=x.hole+'号艇'; document.getElementById('type').textContent=x.scenario;
- document.getElementById('bets').innerHTML=(x.bets||[]).map((b,i)=>{
-  const ev=b.ev==null?null:Number(b.ev),cls=ev==null?'low':ev>=1?'good':'mid';
-  return `<tr><td>${i+1}</td><td><b>${b.bet}</b></td><td>${(Number(b.probability)*100).toFixed(2)}%</td><td>${b.odds??'-'}</td><td>${ev==null?'-':ev.toFixed(2)}</td><td><span class="tag ${cls}">${b.judgement}</span></td></tr>`;
- }).join('');
+ function renderAnalysis(x){
+  document.getElementById('boats').innerHTML=x.boats.map(b=>
+    `<div class="boat">
+      <div class="num">${b.boat}号艇</div>
+      <div class="name">${b.name||'選手'}</div>
+      <div class="score">${Number(b.score).toFixed(1)}</div>
+      <div class="bar">
+        <i style="width:${Math.min(100,Math.max(0,b.score))}%"></i>
+      </div>
+      <small>
+        全国 ${b.nation??'-'} / 当地 ${b.local??'-'}
+        <br>
+        ST ${b.st??'-'} / 展示 ${b.exhibition??'-'}
+      </small>
+    </div>`
+  ).join('');
+
+  document.getElementById('main').textContent=x.main+'号艇';
+  document.getElementById('second').textContent=x.second+'号艇';
+  document.getElementById('third').textContent=x.third+'号艇';
+  document.getElementById('scenario').textContent=x.scenario||'-';
+
+  const bets=Array.isArray(x.bets)?x.bets:[];
+
+  function betRow(b,i){
+    const ev=b.ev==null?null:Number(b.ev);
+    const evClass=
+      ev==null?'mid':
+      ev>=1?'good':
+      ev>=0.8?'mid':'low';
+
+    return `
+      <tr>
+        <td>${i+1}</td>
+        <td><b>${b.bet}</b></td>
+        <td>${(Number(b.probability||0)*100).toFixed(2)}%</td>
+        <td>${b.odds??'-'}</td>
+        <td class="${evClass}">${ev==null?'-':ev.toFixed(2)}</td>
+        <td>${b.judgement||'候補'}</td>
+      </tr>
+    `;
+  }
+
+  // ガチガチ：推定確率を重視
+  const gachi=[...bets]
+    .sort((a,b)=>Number(b.probability||0)-Number(a.probability||0))
+    .slice(0,10);
+
+  // ロマン砲：高オッズを重視
+  const roman=[...bets]
+    .filter(b=>b.odds!=null)
+    .sort((a,b)=>Number(b.odds||0)-Number(a.odds||0))
+    .slice(0,10);
+
+  // 鬼しぼり：期待値を重視
+  const oni=[...bets]
+    .filter(b=>b.ev!=null)
+    .sort((a,b)=>Number(b.ev||0)-Number(a.ev||0))
+    .slice(0,3);
+
+  document.getElementById('betsGachi').innerHTML=
+    gachi.map(betRow).join('');
+
+  document.getElementById('betsRoman').innerHTML=
+    roman.map(betRow).join('');
+
+  document.getElementById('betsOni').innerHTML=
+    oni.map(betRow).join('');
 }
 async function settlePrediction(){
  if(!lastPrediction){document.getElementById('reason').textContent='先にAI予想を実行してください。';return;}
