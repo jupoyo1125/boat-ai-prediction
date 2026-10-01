@@ -563,31 +563,131 @@ def _softmax(values, temperature=12.0):
 def build_bets(boats, odds, fixed):
     scores = {x['boat']: x['score'] for x in boats}
     temperature = float(load_model().get('temperature', 12.0))
+
     combos = []
-    for a, b, c in permutations(range(1,7), 3):
+
+    for a, b, c in permutations(range(1, 7), 3):
         if fixed != 'none' and a != int(fixed):
             continue
-        remaining = [x for x in range(1,7) if x != a]
-        p1 = _softmax([scores[x] for x in range(1,7)], temperature)[a-1]
-        p2 = _softmax([scores[x] for x in remaining], temperature)[remaining.index(b)]
+
+        remaining = [x for x in range(1, 7) if x != a]
+
+        p1 = _softmax(
+            [scores[x] for x in range(1, 7)],
+            temperature
+        )[a - 1]
+
+        p2 = _softmax(
+            [scores[x] for x in remaining],
+            temperature
+        )[remaining.index(b)]
+
         rem2 = [x for x in remaining if x != b]
-        p3 = _softmax([scores[x] for x in rem2], temperature)[rem2.index(c)]
+
+        p3 = _softmax(
+            [scores[x] for x in rem2],
+            temperature
+        )[rem2.index(c)]
+
         prob = p1 * p2 * p3
+
         key = f'{a}{b}{c}'
         odd = odds.get(key)
+
         ev = None if odd is None else prob * odd
+
         combos.append({
             'bet': f'{a}-{b}-{c}',
             'probability': round(prob, 6),
             'odds': odd,
             'ev': round(ev, 4) if ev is not None else None,
-            'judgement': 'オッズ未取得' if ev is None else (
-                '候補' if ev >= 1 else ('慎重' if ev >= .8 else '見送り')
+            'judgement': (
+                'オッズ未取得'
+                if ev is None
+                else (
+                    '候補'
+                    if ev >= 1
+                    else (
+                        '慎重'
+                        if ev >= 0.8
+                        else '見送り'
+                    )
+                )
             )
         })
-    combos.sort(key=lambda x: x['ev'] if x['ev'] is not None else -1, reverse=True)
-    return combos
 
+    # オッズ取得済みの買い目
+    available = [
+        x for x in combos
+        if x['odds'] is not None
+    ]
+
+    # ① ガチガチ
+    # 的中確率を最優先
+    gachi = sorted(
+        available,
+        key=lambda x: (
+            x['probability'],
+            x['ev'] if x['ev'] is not None else -1
+        ),
+        reverse=True
+    )[:10]
+
+    used = {
+        x['bet']
+        for x in gachi
+    }
+
+    # ② ロマン砲
+    # 高オッズを優先しつつ、極端に確率が低い買い目を避ける
+    roman_pool = [
+        x for x in available
+        if x['bet'] not in used
+        and x['probability'] >= 0.002
+    ]
+
+    roman = sorted(
+        roman_pool,
+        key=lambda x: (
+            x['odds'],
+            x['ev'] if x['ev'] is not None else -1
+        ),
+        reverse=True
+    )[:10]
+
+    used.update(
+        x['bet']
+        for x in roman
+    )
+
+    # ③ 鬼しぼり
+    # 期待値(EV)を最優先
+    oni_pool = [
+        x for x in available
+        if x['bet'] not in used
+    ]
+
+    oni = sorted(
+        oni_pool,
+        key=lambda x: (
+            x['ev'] if x['ev'] is not None else -1,
+            x['probability']
+        ),
+        reverse=True
+    )[:3]
+
+    # カテゴリを付与
+    for x in gachi:
+        x['category'] = 'gachi'
+
+    for x in roman:
+        x['category'] = 'roman'
+
+    for x in oni:
+        x['category'] = 'oni'
+
+    # ガチガチ → ロマン砲 → 鬼しぼり
+    return gachi + roman + oni
 def feature_snapshot(boats):
     return {
         str(r['boat']): {
