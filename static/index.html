@@ -643,21 +643,21 @@ function renderAnalysis(x){
   }
 
   // ガチガチ：推定確率を重視
-  const gachi=[...bets]
-    .sort((a,b)=>Number(b.probability||0)-Number(a.probability||0))
-    .slice(0,10);
+const gachi=[...bets]
+  .sort((a,b)=>Number(b.probability||0)-Number(a.probability||0))
+  .slice(0,10);
 
-  // ロマン砲：高オッズを重視
-  const roman=[...bets]
-    .filter(b=>b.odds!=null)
-    .sort((a,b)=>Number(b.odds||0)-Number(a.odds||0))
-    .slice(0,10);
+// ロマン砲：高オッズを重視
+const roman=[...bets]
+  .filter(b=>b.odds!=null)
+  .sort((a,b)=>Number(b.odds||0)-Number(a.odds||0))
+  .slice(0,10);
 
-  // 鬼しぼり：期待値を重視
-  const oni=[...bets]
-    .filter(b=>b.ev!=null)
-    .sort((a,b)=>Number(b.ev||0)-Number(a.ev||0))
-    .slice(0,3);
+// 鬼しぼり：期待値を重視
+const oni=[...bets]
+  .filter(b=>b.ev!=null)
+  .sort((a,b)=>Number(b.ev||0)-Number(a.ev||0))
+  .slice(0,3);
 
   document.getElementById('betsGachi').innerHTML=
     gachi.map(betRow).join('');
