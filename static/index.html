@@ -150,25 +150,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 </div><div class="status" id="reason">「AI予想」を押してください。</div><div class="scenario"><span class="pill active">予想→保存→結果→学習</span></div></section>
 </div>
 
-<section class="panel race-list">
-  <h2>開催中レース一覧</h2>
-  <div class="status" id="raceListStatus">
-    開催情報を取得中…
-  </div>
-  <div id="raceList"></div>
-<div style="margin-top:14px">
-  <button id="batchAnalyzeBtn" onclick="batchAnalyze()">
-    🚀 今日の全レースをAI分析
-  </button>
-  <button id="batchSettleBtn" class="secondary" onclick="batchSettle()">
-  📊 完了レースを一括・結果取得＆学習
-</button>
-</div>
 
-<div class="status" id="batchStatus">
-  一括分析はまだ実行していません。
-</div>
-</section>
 <section class="panel" style="margin-top:16px"><h2>3連単・期待値候補</h2>
 <table><thead><tr><th>順位</th><th>買い目</th><th>推定確率</th><th>オッズ</th><th>期待倍率</th><th>判定</th></tr></thead><tbody id="bets"></tbody></table>
 </section>
