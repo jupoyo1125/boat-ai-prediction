@@ -618,9 +618,9 @@ function renderAnalysis(x){
 
   document.getElementById('main').textContent=x.main+'号艇';
   document.getElementById('second').textContent=x.second+'号艇';
-  document.getElementById('third').textContent=x.third+'号艇';
-  document.getElementById('scenario').textContent=x.scenario||'-';
-
+  document.getElementById('hole').textContent=x.third+'号艇';
+　document.getElementById('scenario').textContent=x.scenario||'-';
+  
   const bets=Array.isArray(x.bets)?x.bets:[];
 
   function betRow(b,i){
