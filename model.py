@@ -62,7 +62,7 @@ def _normalize_state(state):
     state["weights"] = weights
     state["temperature"] = max(
         8.0,
-        min(24.0, float(state.get("temperature", 12.0)))
+        min(18.0, float(state.get("temperature", 12.0)))
     )
     state["samples"] = int(state.get("samples", 0))
     state["hits"] = int(state.get("hits", 0))
@@ -200,7 +200,11 @@ def learn_from_features(
         and isinstance(actual_features, dict)
         and actual_features
     ):
-        learning_rate = 0.008
+        samples = int(state.get("samples", 1))
+        learning_rate = max(
+            0.0025,
+            0.008 * (100.0 / (100.0 + samples)) ** 0.5
+        )
 
         for key in weights:
             predicted_value = float(
@@ -293,17 +297,24 @@ def learn_from_record(
     state["hits"] += hit
 
     temperature = float(
-        state.get("temperature", 12.0)
-    )
+    state.get("temperature", 12.0)
+)
 
-    temperature *= (
-        0.995 if hit else 1.005
-    )
+samples = max(int(state.get("samples", 1)), 1)
+hits = max(int(state.get("hits", 0)), 0)
 
-    state["temperature"] = round(
-        max(8.0, min(24.0, temperature)),
-        4
-    )
+hit_rate = hits / samples
+baseline = 1.0 / 6.0
+
+target = 12.0 - ((hit_rate - baseline) * 20.0)
+target = max(9.0, min(15.0, target))
+
+temperature += (target - temperature) * 0.02
+
+state["temperature"] = round(
+    max(8.0, min(18.0, temperature)),
+    4
+)
 
     save(state)
 
