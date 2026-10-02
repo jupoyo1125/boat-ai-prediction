@@ -1,81 +1,219 @@
 """BOAT RACE公式 3連単オッズ parser.
 
-公式 odds3t の3連単表をDOM順に読み、各「1着・2着・3着」の組合せへ対応付ける。
-公式ページの表示順を固定値に依存せず、各セルの組合せ表示から復元する。
+公式3連単オッズ表を20行×6列の行列として取得し、
+120通りの「1着-2着-3着」に正確に対応付ける。
+
+重要:
+- 全DOMの単純な120個順では割り当てない
+- 3連単オッズ表そのものを特定する
+- 20行×6列を確認してから変換する
+- 120通り揃わない場合はエラーにしてAIへ誤データを渡さない
+- 欠場・返還など数値がないセルはNoneとして保持する
 """
+
 from bs4 import BeautifulSoup
-import re
+
+
+EXPECTED_KEYS = {
+    f"{a}{b}{c}"
+    for a in range(1, 7)
+    for b in range(1, 7)
+    for c in range(1, 7)
+    if len({a, b, c}) == 3
+}
 
 
 def _to_float(text):
-    s = str(text).strip().replace(',', '')
-    if not s or s in {'-', '---', '欠場', '返還'}:
+    """オッズ文字列をfloatへ変換する。"""
+    s = str(text).strip().replace(",", "")
+
+    if not s or s in {"-", "---", "欠場", "返還"}:
         return None
+
     try:
         return float(s)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
 
 
-def _triplet_text(text):
-    nums = re.findall(r'(?<!\d)([1-6])\s*[-－]?\s*([1-6])\s*[-－]?\s*([1-6])(?!\d)', text)
-    for a,b,c in nums:
-        if len({a,b,c}) == 3:
-            return f'{a}{b}{c}'
-    return None
+def _extract_odds_matrix(soup):
+    """
+    公式3連単オッズ表から
+    20行×6列のoddsPointを取得する。
+    """
+
+    candidates = []
+
+    # まずtableを探す
+    for table in soup.find_all("table"):
+        rows = []
+
+        for tr in table.select("tr"):
+            cells = tr.select("td.oddsPoint")
+
+            if len(cells) == 6:
+                rows.append(cells)
+
+        if len(rows) >= 20:
+            candidates.append(rows[:20])
+
+    # 念のため.table1構造にも対応
+    if not candidates:
+        for container in soup.select(".table1"):
+            rows = []
+
+            for tr in container.select("tr"):
+                cells = tr.select("td.oddsPoint")
+
+                if len(cells) == 6:
+                    rows.append(cells)
+
+            if len(rows) >= 20:
+                candidates.append(rows[:20])
+
+    if not candidates:
+        raise ValueError(
+            "公式3連単オッズ表（20行×6列）を特定できませんでした。"
+            "誤ったオッズを返さないため処理を停止します。"
+        )
+
+    # 「3連単」を含むテーブルを優先
+    best_rows = candidates[0]
+
+    for table in soup.find_all("table"):
+        rows = []
+
+        for tr in table.select("tr"):
+            cells = tr.select("td.oddsPoint")
+
+            if len(cells) == 6:
+                rows.append(cells)
+
+        if (
+            len(rows) >= 20
+            and "3連単" in table.get_text(" ", strip=True)
+        ):
+            best_rows = rows[:20]
+            break
+
+    matrix = [
+        [
+            _to_float(cell.get_text(" ", strip=True))
+            for cell in row
+        ]
+        for row in best_rows
+    ]
+
+    # 20×6でなければ停止
+    if len(matrix) != 20:
+        raise ValueError(
+            f"3連単オッズの行数が20ではありません: {len(matrix)}"
+        )
+
+    if any(len(row) != 6 for row in matrix):
+        raise ValueError(
+            "3連単オッズの列数が6ではない行があります。"
+        )
+
+    return matrix
+
+
+def _matrix_to_result(matrix):
+    """
+    20×6の公式オッズ表を
+    123 -> オッズ
+    の120通りの辞書へ変換する。
+
+    公式表は、
+    matrix.T.reshape(-1)
+    相当の並びで3連単120通りに対応する。
+    """
+
+    if len(matrix) != 20:
+        raise ValueError("オッズ行列は20行必要です。")
+
+    if any(len(row) != 6 for row in matrix):
+        raise ValueError("オッズ行列は6列必要です。")
+
+    # 公式3連単表の列→行の順番で120値を取得
+    values = [
+        matrix[row][col]
+        for col in range(6)
+        for row in range(20)
+    ]
+
+    # 3連単120通り
+    keys = [
+        f"{a}{b}{c}"
+        for a in range(1, 7)
+        for b in range(1, 7)
+        for c in range(1, 7)
+        if len({a, b, c}) == 3
+    ]
+
+    if len(values) != 120:
+        raise ValueError(
+            f"オッズ取得数が120ではありません: {len(values)}"
+        )
+
+    if len(keys) != 120:
+        raise ValueError(
+            f"3連単キー生成数が120ではありません: {len(keys)}"
+        )
+
+    result = dict(zip(keys, values))
+
+    # 最終チェック
+    if len(result) != 120:
+        raise ValueError(
+            f"3連単辞書が120通りではありません: {len(result)}"
+        )
+
+    if set(result.keys()) != EXPECTED_KEYS:
+        raise ValueError(
+            "3連単120通りのキーが一致しません。"
+        )
+
+    return result
 
 
 def parse_odds(html):
-    soup = BeautifulSoup(html, 'html.parser')
-    # 公式PCページの3連単表。oddsPointだけを拾う。
-    cells = soup.select('td.oddsPoint')
-    if not cells:
-        cells = [x for x in soup.find_all('td') if 'oddsPoint' in (x.get('class') or [])]
-    if len(cells) < 120:
-        raise ValueError(f'公式3連単オッズを120点取得できませんでした（取得={len(cells)}点）')
+    """
+    BOAT RACE公式3連単オッズHTMLを解析する。
 
-    # oddsPointのDOM順は、公式表の「1着→2着→3着」の並び順。
-    # 表示セルそのものには組合せが含まれないため、親行/親列から組合せを復元できる場合を優先。
-    result = {}
+    戻り値:
 
-    # まず公式テーブルの行構造を使って復元。
-    tables = soup.find_all('div', class_='table1')
-    candidates = tables if tables else [soup]
-    for table in candidates:
-        tds = table.select('td.oddsPoint')
-        if len(tds) < 120:
-            continue
-        # 各セルの直前のtd群に艇番が並ぶケースを探索。取れなければDOM順へフォールバック。
-        for td in tds[:120]:
-            value = _to_float(td.get_text(' ', strip=True))
-            if value is None:
-                continue
-            parent = td.parent
-            if not parent:
-                continue
-            cells_in_row = parent.find_all(['th','td'])
-            idx = cells_in_row.index(td) if td in cells_in_row else -1
-            if idx >= 2:
-                nearby = ' '.join(x.get_text(' ', strip=True) for x in cells_in_row[max(0,idx-2):idx])
-                key = _triplet_text(nearby)
-                if key:
-                    result[key] = value
-        if len(result) >= 120:
-            break
+        {
+            "123": 7.4,
+            "124": 7.9,
+            "125": 26.4,
+            ...
+            "654": 2454.0
+        }
 
-    # 安全な公式DOM順フォールバック。
-    if len(result) < 120:
-        result = {}
-        # 公式3連単表は、各1着・2着の組合せごとに3着を横方向へ並べる。
-        # そのため辞書順ではなく、a,bを固定してcを昇順にする。
-        keys = []
-        for a in range(1,7):
-            for b in range(1,7):
-                if b == a: continue
-                for c in range(1,7):
-                    if c in (a,b): continue
-                    keys.append(f'{a}{b}{c}')
-        values = [_to_float(td.get_text(' ', strip=True)) for td in cells[:120]]
-        result = {k:v for k,v in zip(keys, values)}
+    欠場・返還など公式ページで数値がない場合はNone。
+
+    組合せとオッズの対応を保証できない場合は
+    ValueErrorを発生させる。
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # ① 公式3連単表を20×6で取得
+    matrix = _extract_odds_matrix(soup)
+
+    # ② 120通りへ変換
+    result = _matrix_to_result(matrix)
+
+    # ③ 最終安全チェック
+    if len(result) != 120:
+        raise ValueError(
+            "3連単オッズ120点の完全性チェックに失敗しました。"
+        )
+
+    if set(result.keys()) != EXPECTED_KEYS:
+        raise ValueError(
+            "3連単の組み合わせが不完全です。"
+        )
 
     return result
