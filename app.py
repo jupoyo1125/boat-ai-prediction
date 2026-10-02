@@ -1134,6 +1134,65 @@ def api_odds_debug():
             ),
             'odds_source': odds_source
         }), 502
+@app.get('/api/odds_debug_all')
+def api_odds_debug_all():
+    """全24場の1Rについて3連単オッズ120通りを一括検証する。"""
+    date = request.args.get(
+        'date',
+        datetime.now().strftime('%Y%m%d')
+    ).replace('/', '').replace('-', '')
+
+    results = []
+
+    for jcd in [f'{i:02d}' for i in range(1, 25)]:
+        race = 1
+
+        odds_source = (
+            f'{BASE}odds3t?hd={date}'
+            f'&jcd={jcd}'
+            f'&rno={race:02d}'
+        )
+
+        try:
+            html = get(odds_source)
+            odds = parse_odds(html)
+
+            expected_keys = {
+                f'{a}{b}{c}'
+                for a in range(1, 7)
+                for b in range(1, 7)
+                for c in range(1, 7)
+                if len({a, b, c}) == 3
+            }
+
+            results.append({
+                'stadium': jcd,
+                'venue': STADIUMS.get(jcd, jcd),
+                'race': race,
+                'ok': True,
+                'odds_count': len(odds),
+                'numeric_count': sum(
+                    v is not None for v in odds.values()
+                ),
+                'all_keys_valid': (
+                    set(odds.keys()) == expected_keys
+                )
+            })
+
+        except Exception as e:
+            results.append({
+                'stadium': jcd,
+                'venue': STADIUMS.get(jcd, jcd),
+                'race': race,
+                'ok': False,
+                'error': f'{type(e).__name__}: {e}'
+            })
+
+    return jsonify({
+        'date': date,
+        'venue_count': len(results),
+        'results': results
+    })
 @app.get('/api/analyze')
 def api_analyze():
     date = request.args.get('date',datetime.now().strftime('%Y%m%d')).replace('/','').replace('-','')
