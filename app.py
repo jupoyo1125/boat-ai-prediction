@@ -1136,7 +1136,7 @@ def api_odds_debug():
         }), 502
 @app.get('/api/odds_debug_all')
 def api_odds_debug_all():
-    """全24場の1Rについて3連単オッズ120通りを並列検証する。"""
+    """指定日の開催場だけ、1Rの3連単オッズ120通りを並列検証する。"""
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1153,6 +1153,24 @@ def api_odds_debug_all():
         if len({a, b, c}) == 3
     }
 
+    try:
+        active = get_active_stadiums(date)
+
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'date': date,
+            'error': (
+                '開催場の取得に失敗しました: '
+                f'{type(e).__name__}: {e}'
+            )
+        }), 502
+
+    stadium_codes = [
+        item['stadium']
+        for item in active
+    ]
+
     def check_stadium(jcd):
         race = 1
 
@@ -1163,7 +1181,6 @@ def api_odds_debug_all():
         )
 
         try:
-            # 一括テストでは1場あたり最大10秒
             response = requests.get(
                 odds_source,
                 headers=HEAD,
@@ -1178,11 +1195,20 @@ def api_odds_debug_all():
 
             odds = parse_odds(response.text)
 
+            valid = (
+                len(odds) == 120
+                and sum(
+                    v is not None
+                    for v in odds.values()
+                ) == 120
+                and set(odds.keys()) == expected_keys
+            )
+
             return {
                 'stadium': jcd,
                 'venue': STADIUMS.get(jcd, jcd),
                 'race': race,
-                'ok': True,
+                'ok': valid,
                 'odds_count': len(odds),
                 'numeric_count': sum(
                     v is not None
@@ -1190,7 +1216,8 @@ def api_odds_debug_all():
                 ),
                 'all_keys_valid': (
                     set(odds.keys()) == expected_keys
-                )
+                ),
+                'odds_source': odds_source
             }
 
         except Exception as e:
@@ -1201,18 +1228,14 @@ def api_odds_debug_all():
                 'ok': False,
                 'error': (
                     f'{type(e).__name__}: {e}'
-                )
+                ),
+                'odds_source': odds_source
             }
-
-    stadium_codes = [
-        f'{i:02d}'
-        for i in range(1, 25)
-    ]
 
     results = []
 
-    # 最大8場ずつ並列取得
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # 開催中の場だけを最大6場ずつ並列取得
+    with ThreadPoolExecutor(max_workers=6) as executor:
 
         futures = {
             executor.submit(
@@ -1227,7 +1250,6 @@ def api_odds_debug_all():
                 future.result()
             )
 
-    # 競艇場コード順に並べ直す
     results.sort(
         key=lambda x: x['stadium']
     )
@@ -1235,9 +1257,6 @@ def api_odds_debug_all():
     success_count = sum(
         1 for x in results
         if x.get('ok')
-        and x.get('odds_count') == 120
-        and x.get('numeric_count') == 120
-        and x.get('all_keys_valid')
     )
 
     error_count = len(results) - success_count
@@ -1248,6 +1267,7 @@ def api_odds_debug_all():
         'venue_count': len(results),
         'success_count': success_count,
         'error_count': error_count,
+        'active_venues': active,
         'results': results
     })
 @app.get('/api/analyze')
