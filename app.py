@@ -1136,15 +1136,24 @@ def api_odds_debug():
         }), 502
 @app.get('/api/odds_debug_all')
 def api_odds_debug_all():
-    """全24場の1Rについて3連単オッズ120通りを一括検証する。"""
+    """全24場の1Rについて3連単オッズ120通りを並列検証する。"""
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     date = request.args.get(
         'date',
         datetime.now().strftime('%Y%m%d')
     ).replace('/', '').replace('-', '')
 
-    results = []
+    expected_keys = {
+        f'{a}{b}{c}'
+        for a in range(1, 7)
+        for b in range(1, 7)
+        for c in range(1, 7)
+        if len({a, b, c}) == 3
+    }
 
-    for jcd in [f'{i:02d}' for i in range(1, 25)]:
+    def check_stadium(jcd):
         race = 1
 
         odds_source = (
@@ -1154,43 +1163,91 @@ def api_odds_debug_all():
         )
 
         try:
-            html = get(odds_source)
-            odds = parse_odds(html)
+            # 一括テストでは1場あたり最大10秒
+            response = requests.get(
+                odds_source,
+                headers=HEAD,
+                timeout=10
+            )
 
-            expected_keys = {
-                f'{a}{b}{c}'
-                for a in range(1, 7)
-                for b in range(1, 7)
-                for c in range(1, 7)
-                if len({a, b, c}) == 3
-            }
+            response.raise_for_status()
 
-            results.append({
+            response.encoding = (
+                response.apparent_encoding or 'utf-8'
+            )
+
+            odds = parse_odds(response.text)
+
+            return {
                 'stadium': jcd,
                 'venue': STADIUMS.get(jcd, jcd),
                 'race': race,
                 'ok': True,
                 'odds_count': len(odds),
                 'numeric_count': sum(
-                    v is not None for v in odds.values()
+                    v is not None
+                    for v in odds.values()
                 ),
                 'all_keys_valid': (
                     set(odds.keys()) == expected_keys
                 )
-            })
+            }
 
         except Exception as e:
-            results.append({
+            return {
                 'stadium': jcd,
                 'venue': STADIUMS.get(jcd, jcd),
                 'race': race,
                 'ok': False,
-                'error': f'{type(e).__name__}: {e}'
-            })
+                'error': (
+                    f'{type(e).__name__}: {e}'
+                )
+            }
+
+    stadium_codes = [
+        f'{i:02d}'
+        for i in range(1, 25)
+    ]
+
+    results = []
+
+    # 最大8場ずつ並列取得
+    with ThreadPoolExecutor(max_workers=8) as executor:
+
+        futures = {
+            executor.submit(
+                check_stadium,
+                jcd
+            ): jcd
+            for jcd in stadium_codes
+        }
+
+        for future in as_completed(futures):
+            results.append(
+                future.result()
+            )
+
+    # 競艇場コード順に並べ直す
+    results.sort(
+        key=lambda x: x['stadium']
+    )
+
+    success_count = sum(
+        1 for x in results
+        if x.get('ok')
+        and x.get('odds_count') == 120
+        and x.get('numeric_count') == 120
+        and x.get('all_keys_valid')
+    )
+
+    error_count = len(results) - success_count
 
     return jsonify({
+        'ok': True,
         'date': date,
         'venue_count': len(results),
+        'success_count': success_count,
+        'error_count': error_count,
         'results': results
     })
 @app.get('/api/analyze')
