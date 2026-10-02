@@ -1047,6 +1047,93 @@ def api_history():
     days = int(request.args.get('days','30'))
     return jsonify({'ok':True,'venue':STADIUMS.get(jcd,jcd),'stats':historical_stats(jcd,days)})
 
+@app.get('/api/odds_debug')
+def api_odds_debug():
+    """3連単オッズの120通り対応を検証するためのデバッグAPI。"""
+    date = request.args.get(
+        'date',
+        datetime.now().strftime('%Y%m%d')
+    ).replace('/', '').replace('-', '')
+
+    jcd = request.args.get('stadium', '15')
+    race = int(request.args.get('race', '1'))
+
+    odds_source = (
+        f'{BASE}odds3t?hd={date}'
+        f'&jcd={jcd}'
+        f'&rno={race:02d}'
+    )
+
+    try:
+        html = get(odds_source)
+
+        odds = parse_odds(html)
+
+        checks = {}
+
+        for key in [
+            '123',
+            '132',
+            '213',
+            '231',
+            '312',
+            '321',
+            '364',
+            '362',
+            '346',
+            '634',
+            '635',
+            '653'
+        ]:
+            checks[key] = odds.get(key)
+
+        expected_keys = {
+            f'{a}{b}{c}'
+            for a in range(1, 7)
+            for b in range(1, 7)
+            for c in range(1, 7)
+            if len({a, b, c}) == 3
+        }
+
+        return jsonify({
+            'ok': True,
+            'date': date,
+            'stadium': jcd,
+            'venue': STADIUMS.get(jcd, jcd),
+            'race': race,
+
+            # 120通りあるか
+            'odds_count': len(odds),
+
+            # 実際に数値が入っている件数
+            'numeric_count': sum(
+                v is not None
+                for v in odds.values()
+            ),
+
+            # 重複キーがないか
+            'key_count': len(set(odds.keys())),
+
+            # 120通りの組み合わせが完全に揃っているか
+            'all_keys_valid': (
+                set(odds.keys()) == expected_keys
+            ),
+
+            # 代表的な組み合わせのオッズ
+            'sample_odds': checks,
+
+            # 取得元
+            'odds_source': odds_source
+        })
+
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'error': (
+                f'{type(e).__name__}: {e}'
+            ),
+            'odds_source': odds_source
+        }), 502
 @app.get('/api/analyze')
 def api_analyze():
     date = request.args.get('date',datetime.now().strftime('%Y%m%d')).replace('/','').replace('-','')
