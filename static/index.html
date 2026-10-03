@@ -943,11 +943,11 @@ async function batchAnalyze(){
 
     document.getElementById('batchFailed').textContent =
       '0';
-  let learned=0;
-  let pending=0;
-  let failed=0;
-  let failedRaces=[];
-
+    let completed=0;
+    let learned=0;
+    let pending=0;
+    let failed=0;
+    let failedRaces=[];
   btn.disabled=true;
 
   status.textContent=
