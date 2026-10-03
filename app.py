@@ -1260,7 +1260,7 @@ def api_odds_debug_all():
 
         results = []
 
-        # 一度に3場だけ取得
+        # 1場ずつ順番に取得
         with ThreadPoolExecutor(
             max_workers=1
         ) as executor:
