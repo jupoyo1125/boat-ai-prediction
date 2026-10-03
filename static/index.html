@@ -143,6 +143,49 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 </div>
 </section>
 
+<section class="panel" style="margin-top:16px">
+  <h2>🤖 一括運用</h2>
+
+  <div class="metrics">
+    <div class="metric">
+      <small>対象</small>
+      <b id="batchTarget">-</b>
+    </div>
+
+    <div class="metric">
+      <small>進捗</small>
+      <b id="batchProgress">0 / 0</b>
+    </div>
+
+    <div class="metric">
+      <small>成功</small>
+      <b id="batchSuccess">0</b>
+    </div>
+
+    <div class="metric">
+      <small>失敗</small>
+      <b id="batchFailed">0</b>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+    <button id="batchAnalyzeBtn" onclick="batchAnalyze()">
+      🤖 一括AI分析
+    </button>
+
+    <button
+      id="batchSettleBtn"
+      class="secondary"
+      onclick="batchSettle()"
+    >
+      📊 一括結果取得・学習
+    </button>
+  </div>
+
+  <div class="status" id="batchStatus">
+    一括処理はまだ実行していません。
+  </div>
+</section>
 <div class="grid">
 <section class="panel"><h2>6艇スコア</h2><div class="cards" id="boats"></div></section>
 <section class="panel"><h2>レース判断</h2><div class="metrics">
@@ -815,7 +858,7 @@ async function batchAnalyze(){
          * 公式サイトへの負荷を抑えるため
          */
         await new Promise(
-          resolve=>setTimeout(resolve,300)
+          resolve=>setTimeout(resolve,1000)
         );
 
       }
