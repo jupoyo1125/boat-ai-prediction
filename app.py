@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from itertools import permutations
 from datetime import datetime, timedelta
 from pathlib import Path
+from functools import lru_cache
 import json
 import os
 import re, requests, math, time
@@ -425,10 +426,91 @@ def parse_resultlist(html):
         })
 
     return rows
-def historical_stats(jcd, days=30):
+@lru_cache(maxsize=100)
+def historical_stats(jcd, days=30, end_date=None):
     days = max(1, min(int(days), 90))
-    end = datetime.now().date()
+
+    if end_date:
+        end = datetime.strptime(
+            str(end_date),
+            '%Y%m%d'
+        ).date()
+    else:
+        end = datetime.now().date()
+
     start = end - timedelta(days=days-1)
+
+    first = [0] * 7
+    combo = {}
+    races = 0
+    payouts = []
+    dates = 0
+
+    d = start
+
+    while d <= end:
+        url = (
+            f'{BASE}resultlist'
+            f'?hd={d.strftime("%Y%m%d")}'
+            f'&jcd={jcd}'
+        )
+
+        try:
+            rs = parse_resultlist(get(url))
+
+            if rs:
+                dates += 1
+
+                for r in rs:
+                    races += 1
+
+                    a, b, c = map(
+                        int,
+                        r['combo']
+                    )
+
+                    first[a] += 1
+
+                    combo[r['combo']] = (
+                        combo.get(r['combo'], 0) + 1
+                    )
+
+                    if r['payout'] is not None:
+                        payouts.append(r['payout'])
+
+        except Exception:
+            pass
+
+        d += timedelta(days=1)
+
+    rates = {
+        str(i):
+        round(
+            first[i] / races * 100,
+            2
+        ) if races else 0
+        for i in range(1, 7)
+    }
+
+    top_combos = sorted(
+        combo.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+
+    return {
+        'days': days,
+        'dates': dates,
+        'races': races,
+        'first_win_rate': rates,
+        'top_combos': top_combos,
+        'avg_payout':
+            round(sum(payouts) / len(payouts))
+            if payouts else None,
+        'max_payout':
+            max(payouts)
+            if payouts else None
+    }
     first = [0] * 7
     combo = {}
     races = 0
@@ -1378,7 +1460,21 @@ def api_analyze():
     before_source = f'{BASE}beforeinfo?hd={date}&jcd={jcd}&rno={race:02d}'
     odds_source = f'{BASE}odds3t?hd={date}&jcd={jcd}&rno={race:02d}'
     try:
-        hist = historical_stats(jcd,days)
+        # 予想対象レースより未来の結果を使わない
+        target_date = datetime.strptime(
+            date,
+            '%Y%m%d'
+        ).date()
+
+        history_end = (
+            target_date - timedelta(days=1)
+        ).strftime('%Y%m%d')
+
+        hist = historical_stats(
+            jcd,
+            days,
+            history_end
+        )
         before = parse_before(get(before_source))
         boats = analyze(boats_from(get(source)),fixed,before,hist)
         odds = parse_odds(get(odds_source))
