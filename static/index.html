@@ -168,19 +168,33 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-    <button id="batchAnalyzeBtn" onclick="batchAnalyze()">
-      🤖 一括AI分析
-    </button>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
 
-    <button
-      id="batchSettleBtn"
-      class="secondary"
-      onclick="batchSettle()"
-    >
-      📊 一括結果取得・学習
-    </button>
-  </div>
+  <button id="batchAnalyzeBtn" onclick="batchAnalyze(false)">
+    🤖 選択場12RをAI分析
+  </button>
+
+  <button id="batchAnalyzeAllBtn" onclick="batchAnalyze(true)">
+    🤖 全場AI分析
+  </button>
+
+  <button
+    id="batchSettleBtn"
+    class="secondary"
+    onclick="batchSettle(false)"
+  >
+    📊 選択場12Rを結果取得・学習
+  </button>
+
+  <button
+    id="batchSettleAllBtn"
+    class="secondary"
+    onclick="batchSettle(true)"
+  >
+    📊 全場結果取得・学習
+  </button>
+
+</div>
 
   <div class="status" id="batchStatus">
     一括処理はまだ実行していません。
@@ -730,7 +744,7 @@ async function settlePrediction(){
   loadPerformanceStatus();
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
-async function batchAnalyze(){
+async function batchAnalyze(allVenues=false){
 
   const btn=document.getElementById('batchAnalyzeBtn');
   const status=document.getElementById('batchStatus');
@@ -749,21 +763,20 @@ async function batchAnalyze(){
     return;
   }
 
-  const venueOptions=[selectedOption];
+  const venueOptions=allVenues
+    ? [...stadiumSelect.options].filter(o=>o.value)
+    : [selectedOption];
 
-  const total=12;
-    document.getElementById('batchTarget').textContent =
-    `${selectedOption.textContent}・12R`;
+  const total=venueOptions.length * 12;
+  const label=allVenues
+    ? `全${venueOptions.length}場・${total}R`
+    : `${selectedOption.textContent}・12R`;
 
-    document.getElementById('batchProgress').textContent =
-      '0 / 12';
+  document.getElementById('batchTarget').textContent =
+    label;
 
-    document.getElementById('batchSuccess').textContent =
-      '0';
-
-    document.getElementById('batchFailed').textContent =
-      '0';
-  let completed=0;
+  document.getElementById('batchProgress').textContent =
+    `0 / ${total}`;
   let success=0;
   let failed=0;
 
@@ -867,10 +880,14 @@ async function batchAnalyze(){
           }
 
           success++;
+          document.getElementById('batchSuccess').textContent =
+          success;
 
         }catch(e){
 
           failed++;
+          document.getElementById('batchFailed').textContent =
+          failed;
 
           console.error(
             `${venue} ${race}R`,
@@ -892,8 +909,7 @@ async function batchAnalyze(){
     }
 
     status.textContent=
-      `✅ ${selectedOption.textContent} 12R一括AI分析完了\n`+
-      `成功：${success}レース\n`+
+      `✅ ${label}のAI分析完了\n`+
       `失敗：${failed}レース\n`+
       `合計：${completed}レース`;
 
@@ -910,7 +926,7 @@ async function batchAnalyze(){
 
   }
 }
-  async function batchSettle(){
+  async function batchSettle(allVenues=false){
 
   const btn=document.getElementById('batchSettleBtn');
   const status=document.getElementById('batchStatus');
@@ -929,14 +945,20 @@ async function batchAnalyze(){
     return;
   }
 
-  const venueOptions=[selectedOption];
+  const venueOptions=allVenues
+  ? [...stadiumSelect.options].filter(o=>o.value)
+  : [selectedOption];
 
-  const total=12;
+  const total=venueOptions.length * 12;
+
+  const label=allVenues
+    ? `全${venueOptions.length}場・${total}R`
+    : `${selectedOption.textContent}・12R`;
     document.getElementById('batchTarget').textContent =
-      `${selectedOption.textContent}・12R`;
+      label;
 
     document.getElementById('batchProgress').textContent =
-      '0 / 12';
+      `0 / ${total}`;
 
     document.getElementById('batchSuccess').textContent =
       '0';
@@ -951,7 +973,7 @@ async function batchAnalyze(){
   btn.disabled=true;
 
   status.textContent=
-  `📊 ${selectedOption.textContent} 12Rの結果取得・学習を開始します。0 / 12レース`;
+  `📊 ${label}の結果取得・学習を開始します。0 / ${total}レース`;
 
   try{
 
@@ -1042,8 +1064,7 @@ async function batchAnalyze(){
     }
 
     status.textContent=
-      `✅ ${selectedOption.textContent} 12Rの結果取得・学習完了\n`+
-      `学習：${learned}レース\n`+
+      `✅ ${label}の結果取得・学習完了\n`+
       `未処理：${pending}レース\n`+
       `失敗：${failed}レース\n`+
       `確認：${completed}レース`+
