@@ -780,6 +780,7 @@ async function batchAnalyze(allVenues=false){
   let completed=0;
   let success=0;
   let failed=0;
+  let failedRaces=[];
 
   btn.disabled=true;
 
@@ -887,14 +888,17 @@ async function batchAnalyze(allVenues=false){
         }catch(e){
 
           failed++;
+          failedRaces.push(
+            `${venue} ${race}R`
+          );
+
           document.getElementById('batchFailed').textContent =
-          failed;
+            failed;
 
           console.error(
             `${venue} ${race}R`,
             e
           );
-
         }
 
         /*
@@ -912,8 +916,10 @@ async function batchAnalyze(allVenues=false){
     status.textContent=
       `✅ ${label}のAI分析完了\n`+
       `失敗：${failed}レース\n`+
-      `合計：${completed}レース`;
-
+      `合計：${completed}レース`+
+      (failedRaces.length
+        ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}`
+        : '');
     loadPerformanceStatus();
 
   }catch(e){
