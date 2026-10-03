@@ -1136,8 +1136,10 @@ def api_odds_debug():
         }), 502
 @app.get('/api/odds_debug_all')
 def api_odds_debug_all():
-    """指定日の開催場だけ、1Rの3連単オッズ120通りを並列検証する。"""
+    """開催中の全場をバックグラウンドで検証する。"""
 
+    import threading
+    import uuid
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     date = request.args.get(
@@ -1153,6 +1155,14 @@ def api_odds_debug_all():
         if len({a, b, c}) == 3
     }
 
+    # ジョブ保存領域
+    if not hasattr(api_odds_debug_all, 'jobs'):
+        api_odds_debug_all.jobs = {}
+        api_odds_debug_all.lock = threading.Lock()
+
+    job_id = uuid.uuid4().hex[:12]
+
+    # 開催場を取得
     try:
         active = get_active_stadiums(date)
 
@@ -1171,105 +1181,192 @@ def api_odds_debug_all():
         for item in active
     ]
 
-    def check_stadium(jcd):
-        race = 1
-
-        odds_source = (
-            f'{BASE}odds3t?hd={date}'
-            f'&jcd={jcd}'
-            f'&rno={race:02d}'
-        )
-
-        try:
-            response = requests.get(
-                odds_source,
-                headers=HEAD,
-                timeout=10
-            )
-
-            response.raise_for_status()
-
-            response.encoding = (
-                response.apparent_encoding or 'utf-8'
-            )
-
-            odds = parse_odds(response.text)
-
-            valid = (
-                len(odds) == 120
-                and sum(
-                    v is not None
-                    for v in odds.values()
-                ) == 120
-                and set(odds.keys()) == expected_keys
-            )
-
-            return {
-                'stadium': jcd,
-                'venue': STADIUMS.get(jcd, jcd),
-                'race': race,
-                'ok': valid,
-                'odds_count': len(odds),
-                'numeric_count': sum(
-                    v is not None
-                    for v in odds.values()
-                ),
-                'all_keys_valid': (
-                    set(odds.keys()) == expected_keys
-                ),
-                'odds_source': odds_source
-            }
-
-        except Exception as e:
-            return {
-                'stadium': jcd,
-                'venue': STADIUMS.get(jcd, jcd),
-                'race': race,
-                'ok': False,
-                'error': (
-                    f'{type(e).__name__}: {e}'
-                ),
-                'odds_source': odds_source
-            }
-
-    results = []
-
-    # 開催中の場だけを最大6場ずつ並列取得
-    with ThreadPoolExecutor(max_workers=6) as executor:
-
-        futures = {
-            executor.submit(
-                check_stadium,
-                jcd
-            ): jcd
-            for jcd in stadium_codes
+    # 初期状態を保存
+    with api_odds_debug_all.lock:
+        api_odds_debug_all.jobs[job_id] = {
+            'status': 'running',
+            'date': date,
+            'active_venues': active,
+            'results': [],
+            'completed': 0,
+            'total': len(stadium_codes),
+            'success_count': 0,
+            'error_count': 0
         }
 
-        for future in as_completed(futures):
-            results.append(
-                future.result()
+    def run_check():
+
+        def check_stadium(jcd):
+
+            race = 1
+
+            odds_source = (
+                f'{BASE}odds3t?hd={date}'
+                f'&jcd={jcd}'
+                f'&rno={race:02d}'
             )
 
-    results.sort(
-        key=lambda x: x['stadium']
+            try:
+                response = requests.get(
+                    odds_source,
+                    headers=HEAD,
+                    timeout=8
+                )
+
+                response.raise_for_status()
+
+                response.encoding = (
+                    response.apparent_encoding or 'utf-8'
+                )
+
+                odds = parse_odds(response.text)
+
+                numeric_count = sum(
+                    v is not None
+                    for v in odds.values()
+                )
+
+                valid = (
+                    len(odds) == 120
+                    and numeric_count == 120
+                    and set(odds.keys()) == expected_keys
+                )
+
+                return {
+                    'stadium': jcd,
+                    'venue': STADIUMS.get(jcd, jcd),
+                    'race': race,
+                    'ok': valid,
+                    'odds_count': len(odds),
+                    'numeric_count': numeric_count,
+                    'all_keys_valid': (
+                        set(odds.keys()) == expected_keys
+                    ),
+                    'odds_source': odds_source
+                }
+
+            except Exception as e:
+
+                return {
+                    'stadium': jcd,
+                    'venue': STADIUMS.get(jcd, jcd),
+                    'race': race,
+                    'ok': False,
+                    'error': (
+                        f'{type(e).__name__}: {e}'
+                    ),
+                    'odds_source': odds_source
+                }
+
+        results = []
+
+        # 一度に3場だけ取得
+        with ThreadPoolExecutor(
+            max_workers=3
+        ) as executor:
+
+            futures = {
+                executor.submit(
+                    check_stadium,
+                    jcd
+                ): jcd
+                for jcd in stadium_codes
+            }
+
+            for future in as_completed(futures):
+
+                result = future.result()
+                results.append(result)
+
+                with api_odds_debug_all.lock:
+
+                    job = api_odds_debug_all.jobs[job_id]
+
+                    job['results'] = sorted(
+                        results,
+                        key=lambda x: x['stadium']
+                    )
+
+                    job['completed'] = len(results)
+
+                    job['success_count'] = sum(
+                        1
+                        for x in results
+                        if x.get('ok')
+                    )
+
+                    job['error_count'] = (
+                        len(results)
+                        - job['success_count']
+                    )
+
+        with api_odds_debug_all.lock:
+
+            job = api_odds_debug_all.jobs[job_id]
+
+            job['status'] = 'completed'
+
+    # バックグラウンド開始
+    thread = threading.Thread(
+        target=run_check,
+        daemon=True
     )
 
-    success_count = sum(
-        1 for x in results
-        if x.get('ok')
-    )
-
-    error_count = len(results) - success_count
+    thread.start()
 
     return jsonify({
         'ok': True,
+        'message': 'オッズ検証を開始しました。',
+        'job_id': job_id,
         'date': date,
-        'venue_count': len(results),
-        'success_count': success_count,
-        'error_count': error_count,
-        'active_venues': active,
-        'results': results
+        'venue_count': len(stadium_codes),
+        'status_url': (
+            f'/api/odds_debug_all_status'
+            f'?job_id={job_id}'
+        )
     })
+
+
+@app.get('/api/odds_debug_all_status')
+def api_odds_debug_all_status():
+    """バックグラウンドで実行中のオッズ検証結果を取得する。"""
+
+    job_id = request.args.get('job_id')
+
+    if not job_id:
+        return jsonify({
+            'ok': False,
+            'error': 'job_idが指定されていません。'
+        }), 400
+
+    if not hasattr(api_odds_debug_all, 'jobs'):
+        return jsonify({
+            'ok': False,
+            'error': 'ジョブが存在しません。'
+        }), 404
+
+    with api_odds_debug_all.lock:
+
+        job = api_odds_debug_all.jobs.get(job_id)
+
+        if job is None:
+            return jsonify({
+                'ok': False,
+                'error': '指定されたjob_idが見つかりません。'
+            }), 404
+
+        return jsonify({
+            'ok': True,
+            'job_id': job_id,
+            'status': job['status'],
+            'date': job['date'],
+            'completed': job['completed'],
+            'total': job['total'],
+            'success_count': job['success_count'],
+            'error_count': job['error_count'],
+            'active_venues': job['active_venues'],
+            'results': job['results']
+        })
 @app.get('/api/analyze')
 def api_analyze():
     date = request.args.get('date',datetime.now().strftime('%Y%m%d')).replace('/','').replace('-','')
