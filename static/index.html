@@ -434,6 +434,11 @@ async function loadSchedule(){
 
     renderAllRaces(x.venues);
 
+    document.getElementById('batchTarget').textContent =
+      `${x.venues.length}場・${x.venues.length * 12}R`;
+
+    document.getElementById('batchProgress').textContent =
+      `0 / ${x.venues.length * 12}`;
     x.venues.forEach(v=>{
 
       const option=document.createElement('option');
