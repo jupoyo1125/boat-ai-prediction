@@ -1210,7 +1210,7 @@ def api_odds_debug_all():
                 response = requests.get(
                     odds_source,
                     headers=HEAD,
-                    timeout=8
+                    timeout=15
                 )
 
                 response.raise_for_status()
@@ -1262,7 +1262,7 @@ def api_odds_debug_all():
 
         # 一度に3場だけ取得
         with ThreadPoolExecutor(
-            max_workers=3
+            max_workers=1
         ) as executor:
 
             futures = {
