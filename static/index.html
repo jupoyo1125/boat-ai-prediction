@@ -919,17 +919,30 @@ async function batchAnalyze(){
 
   const date=document.getElementById('date').value;
 
-  const venueOptions=[
-    ...document.getElementById('stadium').options
-  ].filter(x=>x.value);
+  const stadiumSelect=document.getElementById('stadium');
 
-  if(!venueOptions.length){
-    status.textContent='開催場がありません。';
+  const selectedOption=
+    stadiumSelect.options[stadiumSelect.selectedIndex];
+
+  if(!selectedOption || !selectedOption.value){
+    status.textContent='開催場を選択してください。';
     return;
   }
 
-  const total=venueOptions.length*12;
-  let completed=0;
+  const venueOptions=[selectedOption];
+
+  const total=12;
+    document.getElementById('batchTarget').textContent =
+      `${selectedOption.textContent}・12R`;
+
+    document.getElementById('batchProgress').textContent =
+      '0 / 12';
+
+    document.getElementById('batchSuccess').textContent =
+      '0';
+
+    document.getElementById('batchFailed').textContent =
+      '0';
   let learned=0;
   let pending=0;
   let failed=0;
@@ -938,7 +951,7 @@ async function batchAnalyze(){
   btn.disabled=true;
 
   status.textContent=
-    `📊 一括結果取得・学習を開始します。0 / ${total}レース`;
+  `📊 ${selectedOption.textContent} 12Rの結果取得・学習を開始します。0 / 12レース`;
 
   try{
 
@@ -954,6 +967,14 @@ async function batchAnalyze(){
         status.textContent=
           `📊 結果確認：${venue} ${race}R `+
           `${completed} / ${total}レース`;
+        document.getElementById('batchProgress').textContent =
+          `${completed} / ${total}`;
+
+        document.getElementById('batchSuccess').textContent =
+          learned;
+
+        document.getElementById('batchFailed').textContent =
+          failed;
 
         try{
 
@@ -1013,7 +1034,7 @@ async function batchAnalyze(){
         }
 
         await new Promise(
-          resolve=>setTimeout(resolve,300)
+          resolve=>setTimeout(resolve,1000)
         );
 
       }
@@ -1021,7 +1042,7 @@ async function batchAnalyze(){
     }
 
     status.textContent=
-      `✅ 一括結果取得・学習完了\n`+
+      `✅ ${selectedOption.textContent} 12Rの結果取得・学習完了\n`+
       `学習：${learned}レース\n`+
       `未処理：${pending}レース\n`+
       `失敗：${failed}レース\n`+
