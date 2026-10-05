@@ -820,18 +820,57 @@ async function batchAnalyze(allVenues=false){
             history_days:'30'
           });
 
-          const r=await fetch(
-            '/api/analyze?'+q.toString()
-          );
+          let r;
+          let x;
+          let lastError;
 
-          const x=await r.json();
+          for(let attempt=1; attempt<=3; attempt++){
 
-          if(!r.ok || !x.ok){
-            throw new Error(
-              x.error || 'AI分析に失敗しました'
-            );
+            try{
+
+              r=await fetch(
+                 '/api/analyze?'+q.toString()
+              );
+
+              x=await r.json();
+
+              if(r.ok && x.ok){
+                 break;
+              }
+
+              lastError = new Error(
+                x.error || 'AI分析に失敗しました'
+              );
+
+            }catch(e){
+
+              lastError = e;
+
+            }
+
+            if(attempt < 3){
+
+              status.textContent =
+                `⚠️ ${venue} ${race}Rの取得を再試行中… `+
+                `${attempt}/2`;
+
+              await new Promise(
+                resolve=>setTimeout(
+                  resolve,
+                  attempt * 2000
+                )
+              );
+
+            }
+
           }
 
+          if(!r || !r.ok || !x || !x.ok){
+
+            throw lastError ||
+              new Error('AI分析に失敗しました');
+
+          }
           const firstBet=
             x.bets && x.bets.length
               ? String(x.bets[0].bet).replace(/-/g,'')
