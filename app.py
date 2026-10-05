@@ -1629,7 +1629,7 @@ def api_analyze():
         hist
         )
 
-        codds = parse_odds(
+        odds = parse_odds(
             get(odds_source)
         )
 
