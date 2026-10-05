@@ -218,7 +218,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <th>推定確率</th>
 <th>オッズ</th>
 <th>期待倍率</th>
-<th>判定</th>
+<th>推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsGachi"></tbody>
@@ -235,7 +235,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <th>推定確率</th>
 <th>オッズ</th>
 <th>期待倍率</th>
-<th>判定</th>
+<th>推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsRoman"></tbody>
@@ -252,7 +252,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <th>推定確率</th>
 <th>オッズ</th>
 <th>期待倍率</th>
-<th>判定</th>
+<th>推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsOni"></tbody>
@@ -735,73 +735,286 @@ async function analyze(){
  finally{btn.disabled=false;}
 }
 function renderAnalysis(x){
-  document.getElementById('boats').innerHTML=x.boats.map(b=>
-    `<div class="boat">
-      <div class="num">${b.boat}号艇</div>
-      <div class="name">${b.name||'選手'}</div>
-      <div class="score">${Number(b.score).toFixed(1)}</div>
-      <div class="bar">
-        <i style="width:${Math.min(100,Math.max(0,b.score))}%"></i>
-      </div>
-      <small>
-        全国 ${b.nation??'-'} / 当地 ${b.local??'-'}
-        <br>
-        ST ${b.st??'-'} / 展示 ${b.exhibition??'-'}
-      </small>
-    </div>`
-  ).join('');
 
-  document.getElementById('main').textContent=x.main+'号艇';
-  document.getElementById('second').textContent=x.second+'号艇';
-  document.getElementById('hole').textContent=x.hole+'号艇';
-　document.getElementById('type').textContent=x.scenario||'-';
-  
-  const bets=Array.isArray(x.bets)?x.bets:[];
+  document.getElementById('boats').innerHTML =
+    x.boats.map(b =>
+      `<div class="boat">
+        <div class="num">${b.boat}号艇</div>
+        <div class="name">${b.name||'選手'}</div>
+        <div class="score">${Number(b.score).toFixed(1)}</div>
 
-  function betRow(b,i){
-    const ev=b.ev==null?null:Number(b.ev);
-    const evClass=
-      ev==null?'mid':
-      ev>=1?'good':
-      ev>=0.8?'mid':'low';
+        <div class="bar">
+          <i style="width:${Math.min(
+            100,
+            Math.max(0,b.score)
+          )}%"></i>
+        </div>
+
+        <small>
+          全国 ${b.nation??'-'}
+          / 当地 ${b.local??'-'}
+          <br>
+          ST ${b.st??'-'}
+          / 展示 ${b.exhibition??'-'}
+        </small>
+      </div>`
+    ).join('');
+
+  document.getElementById('main').textContent =
+    x.main + '号艇';
+
+  document.getElementById('second').textContent =
+    x.second + '号艇';
+
+  document.getElementById('hole').textContent =
+    x.hole + '号艇';
+
+  document.getElementById('type').textContent =
+    x.scenario || '-';
+
+  const bets =
+    Array.isArray(x.bets)
+      ? x.bets
+      : [];
+
+  const gachi =
+    bets.filter(
+      b => b.category === 'gachi'
+    );
+
+  const roman =
+    bets.filter(
+      b => b.category === 'roman'
+    );
+
+  const oni =
+    bets.filter(
+      b => b.category === 'oni'
+    );
+
+  function getReason(
+    b,
+    category
+  ){
+
+    const combo =
+      String(b.bet || '');
+
+    const a =
+      Number(combo[0]);
+
+    const b2 =
+      Number(combo[2]);
+
+    const c =
+      Number(combo[4]);
+
+    const prob =
+      (
+        Number(b.probability || 0)
+        * 100
+      ).toFixed(2);
+
+    const odds =
+      Number(b.odds || 0)
+        .toFixed(1);
+
+    const ev =
+      Number(b.ev || 0)
+        .toFixed(2);
+
+    // 🔥 ガチガチ
+    if(category === 'gachi'){
+
+      if(
+        a === Number(x.main)
+        &&
+        b2 === Number(x.second)
+      ){
+        return `本命${x.main}号艇＋対抗${x.second}号艇を軸にした堅めの組み合わせ。AI確率${prob}%・オッズ${odds}倍。`;
+      }
+
+      if(
+        a === Number(x.main)
+      ){
+        return `本命${x.main}号艇の1着を軸に、相手上位を絡めた堅めの買い目。AI確率${prob}%。`;
+      }
+
+      if(
+        a === Number(x.second)
+      ){
+        return `対抗${x.second}号艇の1着まで押さえる堅めの展開。AI確率${prob}%。`;
+      }
+
+      return `本命・対抗・穴の上位評価を中心にした比較的堅めの組み合わせ。`;
+    }
+
+    // 🚀 ロマン砲
+    if(category === 'roman'){
+
+      if(
+        a === Number(x.hole)
+      ){
+        return `穴${x.hole}号艇の1着を狙う高配当パターン。オッズ${odds}倍・AI確率${prob}%。展開次第で一撃候補。`;
+      }
+
+      if(
+        x.scenario === '逃げ'
+        &&
+        a !== Number(x.main)
+      ){
+        return `逃げ想定を崩す波乱パターン。高オッズ${odds}倍を狙いつつ、AI確率${prob}%を確保。`;
+      }
+
+      if(
+        x.scenario === '差し'
+        ||
+        x.scenario === 'まくり・まくり差し'
+      ){
+        return `差し・まくり系の展開を想定した波乱狙い。オッズ${odds}倍・AI確率${prob}%。`;
+      }
+
+      return `高配当を狙える穴目。オッズ${odds}倍以上かつAI確率${prob}%を確保。`;
+    }
+
+    // 👹 鬼しぼり
+    if(category === 'oni'){
+
+      return `AI確率${prob}% × オッズ${odds}倍で期待倍率${ev}。期待値と的中可能性のバランスが高い厳選候補。`;
+    }
+
+    return 'AIによる候補判定';
+  }
+
+  function betRow(
+    bet,
+    index,
+    category
+  ){
+
+    const ev =
+      bet.ev == null
+        ? null
+        : Number(bet.ev);
+
+    const evClass =
+      ev == null
+        ? 'mid'
+        : ev >= 1
+          ? 'good'
+          : ev >= 0.8
+            ? 'mid'
+            : 'low';
 
     return `
       <tr>
-        <td>${i+1}</td>
-        <td><b>${b.bet}</b></td>
-        <td>${(Number(b.probability||0)*100).toFixed(2)}%</td>
-        <td>${b.odds??'-'}</td>
-        <td class="${evClass}">${ev==null?'-':ev.toFixed(2)}</td>
-        <td>${b.judgement||'候補'}</td>
+
+        <td>
+          ${index + 1}
+        </td>
+
+        <td>
+          <b>${bet.bet}</b>
+        </td>
+
+        <td>
+          ${(
+            Number(
+              bet.probability || 0
+            ) * 100
+          ).toFixed(2)}%
+        </td>
+
+        <td>
+          ${bet.odds ?? '-'}倍
+        </td>
+
+        <td class="${evClass}">
+          ${ev == null
+            ? '-'
+            : ev.toFixed(2)}
+        </td>
+
+        <td style="font-size:12px;line-height:1.5">
+          ${getReason(
+            bet,
+            category
+          )}
+        </td>
+
       </tr>
     `;
   }
 
-  // ガチガチ：推定確率を重視
-const gachi=[...bets]
-  .sort((a,b)=>Number(b.probability||0)-Number(a.probability||0))
-  .slice(0,10);
+  // 🔥 ガチガチ
+  document.getElementById(
+    'betsGachi'
+  ).innerHTML =
+    gachi
+      .map(
+        (b,i) =>
+          betRow(
+            b,
+            i,
+            'gachi'
+          )
+      )
+      .join('');
 
-// ロマン砲：高オッズを重視
-const roman=[...bets]
-  .filter(b=>b.odds!=null)
-  .sort((a,b)=>Number(b.odds||0)-Number(a.odds||0))
-  .slice(0,10);
+  // 🚀 ロマン砲
+  document.getElementById(
+    'betsRoman'
+  ).innerHTML =
+    roman
+      .map(
+        (b,i) =>
+          betRow(
+            b,
+            i,
+            'roman'
+          )
+      )
+      .join('');
 
-// 鬼しぼり：期待値を重視
-const oni=[...bets]
-  .filter(b=>b.ev!=null)
-  .sort((a,b)=>Number(b.ev||0)-Number(a.ev||0))
-  .slice(0,3);
+  // 👹 鬼しぼり
+  if(oni.length === 0){
 
-  document.getElementById('betsGachi').innerHTML=
-    gachi.map(betRow).join('');
+    document.getElementById(
+      'betsOni'
+    ).innerHTML = `
+      <tr>
+        <td colspan="6"
+            style="
+              padding:20px;
+              text-align:center;
+              font-weight:bold;
+            ">
+          👹 今回は買わない方がいい
+          <br>
+          <small>
+            EV 1.00以上の買い目がありません。
+            無理に購入せず見送り推奨です。
+          </small>
+        </td>
+      </tr>
+    `;
 
-  document.getElementById('betsRoman').innerHTML=
-    roman.map(betRow).join('');
+  }else{
 
-  document.getElementById('betsOni').innerHTML=
-    oni.map(betRow).join('');
+    document.getElementById(
+      'betsOni'
+    ).innerHTML =
+      oni
+        .map(
+          (b,i) =>
+            betRow(
+              b,
+              i,
+              'oni'
+            )
+        )
+        .join('');
+  }
 }
 async function settlePrediction(){
  if(!lastPrediction){document.getElementById('reason').textContent='先にAI予想を実行してください。';return;}
