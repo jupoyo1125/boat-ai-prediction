@@ -651,11 +651,84 @@ async function analyze(){
   renderAnalysis(x);
   const firstBet=x.bets&&x.bets.length?String(x.bets[0].bet).replace(/-/g,''):'';
   lastPrediction={...p, predicted_first:x.main, combo:firstBet, features:x.features||{}, investment:investment};
-  const saveR=await fetch('/api/performance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-   date:p.date,stadium:p.stadium,race:p.race,combo:firstBet,predicted_first:x.main,features:x.features||{},investment:investment,payout:0,note:'AI自動予想'
-  })});
-  const saved=await saveR.json();
-  if(!saveR.ok||!saved.ok) throw new Error(saved.error||'予想保存に失敗しました');
+  let saveR;
+  let saved;
+  let saveLastError;
+
+  for(let saveAttempt=1; saveAttempt<=3; saveAttempt++){
+
+    try{
+
+      saveR=await fetch(
+        '/api/performance',
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:JSON.stringify({
+
+            date:date,
+
+            stadium:stadium,
+
+            race:race,
+
+            combo:firstBet,
+
+            predicted_first:x.main,
+
+            features:x.features || {},
+
+            investment:investment,
+
+            payout:0,
+
+            note:'一括AI分析'
+
+          })
+        }
+      );
+
+      saved=await saveR.json();
+
+      if(saveR.ok && saved.ok){
+        break;
+      }
+
+      saveLastError = new Error(
+        saved.error || '予想保存に失敗しました'
+      );
+
+    }catch(e){
+
+      saveLastError = e;
+
+    }
+
+    if(saveAttempt < 3){
+
+      status.textContent =
+        `⚠️ ${venue} ${race}Rの予想保存を再試行中… `+
+        `${saveAttempt}/2`;
+
+      await new Promise(
+        resolve=>setTimeout(
+          resolve,
+          saveAttempt * 2000
+        )
+      );
+
+    }
+
+  }
+
+  if(!saveR || !saveR.ok || !saved || !saved.ok){
+
+    throw saveLastError ||
+      new Error('予想保存に失敗しました');
+
+}
   document.getElementById('settleBtn').disabled=false;
   status.textContent=`AI予想を保存しました。${x.venue} ${p.race}R｜本命 ${x.main}号艇｜次に「結果取得・学習」を押せます。`;
  }catch(e){status.textContent='エラー: '+e.message; document.getElementById('settleBtn').disabled=true;}
