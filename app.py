@@ -642,17 +642,39 @@ def _softmax(values, temperature=12.0):
     s = sum(ex) or 1.0
     return [x/s for x in ex]
 
-def build_bets(boats, odds, fixed):
-    scores = {x['boat']: x['score'] for x in boats}
-    temperature = float(load_model().get('temperature', 12.0))
+def build_bets(boats, odds, fixed, scenario_name=None):
+
+    scores = {
+        x['boat']: x['score']
+        for x in boats
+    }
+
+    temperature = float(
+        load_model().get('temperature', 12.0)
+    )
 
     combos = []
 
+    # 本命・対抗・穴
+    ranking = sorted(
+        boats,
+        key=lambda x: x['score'],
+        reverse=True
+    )
+
+    main_boat = ranking[0]['boat']
+    second_boat = ranking[1]['boat']
+    hole_boat = ranking[2]['boat']
+
     for a, b, c in permutations(range(1, 7), 3):
+
         if fixed != 'none' and a != int(fixed):
             continue
 
-        remaining = [x for x in range(1, 7) if x != a]
+        remaining = [
+            x for x in range(1, 7)
+            if x != a
+        ]
 
         p1 = _softmax(
             [scores[x] for x in range(1, 7)],
@@ -664,50 +686,83 @@ def build_bets(boats, odds, fixed):
             temperature
         )[remaining.index(b)]
 
-        rem2 = [x for x in remaining if x != b]
+        rem2 = [
+            x for x in remaining
+            if x != b
+        ]
 
         p3 = _softmax(
             [scores[x] for x in rem2],
             temperature
         )[rem2.index(c)]
 
-        prob = p1 * p2 * p3
+        probability = p1 * p2 * p3
 
         key = f'{a}{b}{c}'
         odd = odds.get(key)
 
-        ev = None if odd is None else prob * odd
+        ev = (
+            None
+            if odd is None
+            else probability * odd
+        )
 
         combos.append({
             'bet': f'{a}-{b}-{c}',
-            'probability': round(prob, 6),
+            'probability': round(
+                probability,
+                6
+            ),
             'odds': odd,
-            'ev': round(ev, 4) if ev is not None else None,
+            'ev': (
+                round(ev, 4)
+                if ev is not None
+                else None
+            ),
             'judgement': (
                 'オッズ未取得'
                 if ev is None
                 else (
-                    '候補'
-                    if ev >= 1
+                    '◎'
+                    if ev >= 1.0
                     else (
-                        '慎重'
+                        '○'
                         if ev >= 0.8
-                        else '見送り'
+                        else '△'
                     )
                 )
             )
         })
 
-    # オッズ取得済みの買い目
     available = [
         x for x in combos
         if x['odds'] is not None
     ]
 
-    # ① ガチガチ
-    # 的中確率を最優先
+    # ==================================================
+    # 🔥 ガチガチ
+    # ==================================================
+
+    GACHI_MIN_ODDS = 2.0
+
+    gachi_pool = [
+        x for x in available
+        if float(x['odds']) >= GACHI_MIN_ODDS
+        and (
+            int(x['bet'][0])
+            in [main_boat, second_boat]
+        )
+        and (
+            int(x['bet'][1])
+            in [main_boat, second_boat, hole_boat]
+            or
+            int(x['bet'][2])
+            in [main_boat, second_boat, hole_boat]
+        )
+    ]
+
     gachi = sorted(
-        available,
+        gachi_pool,
         key=lambda x: (
             x['probability'],
             x['ev'] if x['ev'] is not None else -1
@@ -715,50 +770,136 @@ def build_bets(boats, odds, fixed):
         reverse=True
     )[:10]
 
-    used = {
-        x['bet']
-        for x in gachi
-    }
+    # 条件を満たす買い目が10点未満の場合、
+    # 同じオッズ条件の中から確率順で補完
+    if len(gachi) < 10:
 
-    # ② ロマン砲
-    # 高オッズを優先しつつ、極端に確率が低い買い目を避ける
+        used = {
+            x['bet']
+            for x in gachi
+        }
+
+        supplement = [
+            x for x in available
+            if float(x['odds']) >= GACHI_MIN_ODDS
+            and x['bet'] not in used
+        ]
+
+        supplement = sorted(
+            supplement,
+            key=lambda x: (
+                x['probability'],
+                x['ev'] if x['ev'] is not None else -1
+            ),
+            reverse=True
+        )
+
+        gachi.extend(
+            supplement[
+                :10-len(gachi)
+            ]
+        )
+
+    # ==================================================
+    # 🚀 ロマン砲
+    # ==================================================
+
+    ROMAN_MIN_ODDS = 50.0
+    ROMAN_MIN_PROBABILITY = 0.002
+
     roman_pool = [
         x for x in available
-        if x['bet'] not in used
-        and x['probability'] >= 0.002
+        if float(x['odds']) >= ROMAN_MIN_ODDS
+        and float(x['probability']) >= ROMAN_MIN_PROBABILITY
     ]
+
+    def roman_priority(x):
+
+        a = int(x['bet'][0])
+
+        # 展開を考慮した優先順位
+        scenario_bonus = 0
+
+        if scenario_name == '逃げ':
+            if a == hole_boat:
+                scenario_bonus = 3
+            elif a != main_boat:
+                scenario_bonus = 2
+
+        elif scenario_name in [
+            '差し',
+            'まくり・まくり差し'
+        ]:
+            if a in [second_boat, hole_boat]:
+                scenario_bonus = 3
+            elif a != main_boat:
+                scenario_bonus = 2
+
+        else:
+            if a == hole_boat:
+                scenario_bonus = 2
+
+        return (
+            scenario_bonus,
+            float(x['odds']),
+            float(x['probability'])
+        )
 
     roman = sorted(
         roman_pool,
-        key=lambda x: (
-            x['odds'],
-            x['ev'] if x['ev'] is not None else -1
-        ),
+        key=roman_priority,
         reverse=True
     )[:10]
 
-    used.update(
-        x['bet']
-        for x in roman
-    )
+    # ==================================================
+    # 👹 鬼しぼり
+    # ==================================================
 
-    # ③ 鬼しぼり
-    # 期待値(EV)を最優先
+    ONI_MIN_EV = 1.0
+
     oni_pool = [
         x for x in available
-        if x['bet'] not in used
+        if x['ev'] is not None
+        and float(x['ev']) >= ONI_MIN_EV
     ]
+
+    def oni_score(x):
+
+        probability = float(
+            x['probability']
+        )
+
+        odds_value = float(
+            x['odds']
+        )
+
+        ev_value = float(
+            x['ev']
+        )
+
+        # EVを中心に、
+        # 確率とオッズも加味する
+        score = (
+            ev_value * 0.50
+            +
+            probability * 100 * 0.30
+            +
+            min(odds_value / 100, 10) * 0.20
+        )
+
+        return score
 
     oni = sorted(
         oni_pool,
         key=lambda x: (
-            x['ev'] if x['ev'] is not None else -1,
+            oni_score(x),
+            x['ev'],
             x['probability']
         ),
         reverse=True
     )[:3]
 
-    # カテゴリを付与
+    # カテゴリ付与
     for x in gachi:
         x['category'] = 'gachi'
 
@@ -768,8 +909,13 @@ def build_bets(boats, odds, fixed):
     for x in oni:
         x['category'] = 'oni'
 
-    # ガチガチ → ロマン砲 → 鬼しぼり
-    return gachi + roman + oni
+    return (
+        gachi
+        +
+        roman
+        +
+        oni
+    )
 def feature_snapshot(boats):
     return {
         str(r['boat']): {
@@ -1476,14 +1622,37 @@ def api_analyze():
             history_end
         )
         before = parse_before(get(before_source))
-        boats = analyze(boats_from(get(source)),fixed,before,hist)
-        odds = parse_odds(get(odds_source))
-        combos = build_bets(boats,odds,fixed)
-        boats.sort(key=lambda x:x['score'],reverse=True)
+        boats = analyze(
+        boats_from(get(source)),
+        fixed,
+        before,
+        hist
+        )
+
+        codds = parse_odds(
+            get(odds_source)
+        )
+
+        race_scenario = scenario(
+            boats,
+            before
+        )
+
+        combos = build_bets(
+            boats,
+            odds,
+            fixed,
+            race_scenario
+        )
+
+        boats.sort(
+            key=lambda x:x['score'],
+            reverse=True
+        )
         return jsonify({
             'ok':True,'venue':STADIUMS.get(jcd,jcd),'boats':boats,
             'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
-            'scenario':scenario(boats,before),'bets':combos[:12],
+            'scenario':scenario(boats,before),'bets':combos,
             'history':hist,
             'features':feature_snapshot(boats),
             'weather':{'wind':before['wind'],'wave':before['wave'],'air':before['air'],'water':before['water']},
