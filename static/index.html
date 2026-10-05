@@ -668,11 +668,11 @@ async function analyze(){
           },
           body:JSON.stringify({
 
-            date:date,
+            date:p.date,
 
-            stadium:stadium,
+            stadium:p.stadium,
 
-            race:race,
+            race:p.race,
 
             combo:firstBet,
 
@@ -709,7 +709,7 @@ async function analyze(){
     if(saveAttempt < 3){
 
       status.textContent =
-        `⚠️ ${venue} ${race}Rの予想保存を再試行中… `+
+        `⚠️ ${x.venue} ${p.race}Rの予想保存を再試行中… `+
         `${saveAttempt}/2`;
 
       await new Promise(
