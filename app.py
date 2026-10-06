@@ -1621,7 +1621,13 @@ def api_analyze():
             days,
             history_end
         )
-        before = parse_before(get(before_source))
+        before = parse_before(
+            requests.get(
+                before_source,
+                headers=HEAD,
+                timeout=15
+            ).text
+        )
         boats = analyze(
         boats_from(get(source)),
         fixed,
