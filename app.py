@@ -285,7 +285,7 @@ def ledger_stats(rows):
     }
 
 def get(url):
-    r = requests.get(url, headers=HEAD, timeout=20)
+    r = requests.get(url, headers=HEAD, timeout=5)
     r.raise_for_status()
     r.encoding = r.apparent_encoding or 'utf-8'
     return r.text
