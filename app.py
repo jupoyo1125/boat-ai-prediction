@@ -77,7 +77,7 @@ def get_active_stadiums(date):
     date = normalize_date(date)
 
     url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date.replace("-", "")}'
-    html = get(url)
+    html = requests.get(url, headers=HEAD, timeout=15).text
 
     soup = BeautifulSoup(html, 'html.parser')
 
