@@ -468,7 +468,7 @@ def historical_stats(jcd, days=30, end_date=None):
         )
 
         try:
-            rs = parse_resultlist(get(url))
+            rs = parse_resultlist(get(url, timeout=15))
 
             if rs:
                 dates += 1
