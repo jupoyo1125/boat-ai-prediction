@@ -284,19 +284,20 @@ def ledger_stats(rows):
         'by_month': by_month
     }
 
-def get(url):
+def get(url, timeout=5):
     started = time.monotonic()
 
     try:
-        r = requests.get(url, headers=HEAD, timeout=5)
+        r = requests.get(url, headers=HEAD, timeout=timeout)
         r.raise_for_status()
         r.encoding = r.apparent_encoding or 'utf-8'
         return r.text
 
     except requests.RequestException:
         app.logger.exception(
-            "External GET failed url=%s timeout=5 elapsed=%.2fs",
+            "External GET failed url=%s timeout=%s elapsed=%.2fs",
             url,
+            timeout,
             time.monotonic() - started
         )
         raise
@@ -1640,7 +1641,7 @@ def api_analyze():
             ).text
         )
         boats = analyze(
-        boats_from(get(source)),
+                boats_from(get(source, timeout=15)),
         fixed,
         before,
         hist
