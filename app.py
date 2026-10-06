@@ -1648,7 +1648,7 @@ def api_analyze():
         )
 
         odds = parse_odds(
-            get(odds_source)
+            get(odds_source, timeout=15)
         )
 
         race_scenario = scenario(
