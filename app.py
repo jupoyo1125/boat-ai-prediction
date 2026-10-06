@@ -428,7 +428,7 @@ def parse_resultlist(html):
     return rows
 @lru_cache(maxsize=100)
 def historical_stats(jcd, days=30, end_date=None):
-    days = max(1, min(int(days), 90))
+    days = max(1, min(int(days), 7))
 
     if end_date:
         end = datetime.strptime(
