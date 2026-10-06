@@ -285,10 +285,21 @@ def ledger_stats(rows):
     }
 
 def get(url):
-    r = requests.get(url, headers=HEAD, timeout=5)
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding or 'utf-8'
-    return r.text
+    started = time.monotonic()
+
+    try:
+        r = requests.get(url, headers=HEAD, timeout=5)
+        r.raise_for_status()
+        r.encoding = r.apparent_encoding or 'utf-8'
+        return r.text
+
+    except requests.RequestException:
+        app.logger.exception(
+            "External GET failed url=%s timeout=5 elapsed=%.2fs",
+            url,
+            time.monotonic() - started
+        )
+        raise
 
 def num(s):
     m = re.search(r'-?\d+(?:\.\d+)?', str(s).replace(',', ''))
