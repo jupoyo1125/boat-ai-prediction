@@ -765,10 +765,10 @@ def build_bets(boats, odds, fixed, scenario_name=None):
             in [main_boat, second_boat]
         )
         and (
-            int(x['bet'][1])
+            int(x['bet'][2])
             in [main_boat, second_boat, hole_boat]
             or
-            int(x['bet'][2])
+            int(x['bet'][4])
             in [main_boat, second_boat, hole_boat]
         )
     ]
