@@ -137,7 +137,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 
 
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
-<input id="investment" type="number" min="0" step="100" value="1000" placeholder="1レース投資額">
+<input id="investment" type="hidden" value="100">
 <button id="analyzeBtn" onclick="analyze()">AI予想</button>
 <button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
 </div>
