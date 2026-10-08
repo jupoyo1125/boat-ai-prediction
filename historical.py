@@ -18,7 +18,8 @@ from state_store import (atomic_state, atomic_write_json, database_url, state_co
 
 JST = timezone(timedelta(hours=9))
 PATH = Path(__file__).with_name('historical_state.json')
-LEASE = 781042019
+# 017-020 are reserved for live state, live runner, status setup and migration.
+LEASE = 781042021
 BATCH_SIZE = 3
 _schema_lock = threading.Lock()
 _schema_url = None
@@ -280,6 +281,7 @@ class HistoricalRunner:
 
     def process_batch(self, state):
         updated = copy.deepcopy(state)
+        updated['phase'] = 'running'
         date = state['cursor']
         hist_cache = {}
         targets = state['results'][state['position']:state['position'] + BATCH_SIZE]
