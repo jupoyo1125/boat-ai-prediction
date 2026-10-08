@@ -10,6 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app as core
+import automation
 import historical
 from historical_archive import parse_daily_results, previous_history
 import model
@@ -138,8 +139,56 @@ class HistoricalTests(unittest.TestCase):
         historical.write_job(state)
         self.runner.forecast = lambda *args: prediction()
         self.runner.run_once()
+        recovered = historical.read_job()
+        self.assertEqual(recovered['phase'], 'running')
+        self.assertIsNone(recovered['retry_at'])
+        self.assertEqual(recovered['model']['samples'], 3)
         self.runner.run_once()
         self.assertEqual(historical.read_job()['model']['samples'], 4)
+
+    def test_resuming_mid_day_shows_running_after_the_next_saved_batch(self):
+        self.job(days=1, races=4)
+        historical.control(core, 'pause')
+        historical.control(core, 'resume')
+        self.assertEqual(historical.public_status()['phase'], 'queued')
+        self.runner.forecast = lambda *args: prediction()
+        self.runner.run_once()
+        self.assertEqual(historical.public_status()['phase'], 'running')
+        self.assertEqual(historical.public_status()['samples'], 3)
+        self.runner.run_once()
+        self.assertEqual(historical.public_status()['phase'], 'completed')
+
+    def test_history_lease_allows_live_status_setup_and_blocks_another_history_worker(self):
+        held = set()
+        def lease_query(query, parameters):
+            key = parameters[0]
+            if 'pg_try_advisory_lock' in query:
+                acquired = key not in held
+                if acquired:
+                    held.add(key)
+                return mock.Mock(fetchone=lambda: (acquired,))
+            if 'pg_advisory_unlock' in query:
+                held.remove(key)
+            return mock.Mock()
+        def status_query(query, parameters=None):
+            if 'pg_advisory_xact_lock' in query and parameters[0] in held:
+                raise TimeoutError('Live status setup is blocked by the historical worker')
+            return mock.Mock()
+        history_connection = mock.Mock(execute=mock.Mock(side_effect=lease_query))
+        status_connection = mock.Mock(execute=mock.Mock(side_effect=status_query))
+        with mock.patch.object(historical, 'database_url', return_value='test'), \
+             mock.patch('psycopg.connect') as connect, \
+             mock.patch.object(automation, 'state_connection') as connection, \
+             mock.patch.object(automation, '_table_ready', False):
+            connect.return_value.__enter__.return_value = history_connection
+            connection.return_value.__enter__.return_value = status_connection
+            with historical.lease() as acquired:
+                self.assertTrue(acquired)
+                automation.ensure_status_table()
+                self.assertTrue(automation._table_ready)
+                with historical.lease() as duplicate:
+                    self.assertFalse(duplicate)
+            self.assertFalse(held)
 
     def test_pause_during_external_requests_discards_batch_and_resume_retries_safely(self):
         self.job(days=1, races=1)
