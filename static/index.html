@@ -988,6 +988,12 @@ async function settlePrediction(){
  try{
   const r=await fetch('/api/settle_prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(lastPrediction)});
   const x=await r.json(); if(!r.ok||!x.ok) throw new Error(x.error||'結果取得に失敗しました');
+  if(x.status==='already_settled'){
+    status.textContent='このレースは結果取得・学習済みです。';
+    lastPrediction=null;
+    await Promise.all([loadLearningStatus(),loadPerformanceStatus()]);
+    return;
+  }
   const hit=x.record.hit?'的中':'不的中';
   status.textContent=`結果 ${x.result.combo}｜${hit}｜学習${x.learning_hit?'成功':'反映済み'}｜学習回数 ${x.model.samples}回`;
   lastPrediction=null;
@@ -995,7 +1001,21 @@ async function settlePrediction(){
   loadPerformanceStatus();
  }catch(e){status.textContent='エラー: '+e.message; btn.disabled=false;}
 }
+let batchRunning=false;
+function setBatchBusy(busy){
+  batchRunning=busy;
+  for(const id of ['batchAnalyzeBtn','batchAnalyzeAllBtn','batchSettleBtn','batchSettleAllBtn']){
+    const button=document.getElementById(id);
+    if(button) button.disabled=busy;
+  }
+}
+function updateBatchProgress(completed,total,success,failed){
+  document.getElementById('batchProgress').textContent=`${completed} / ${total}`;
+  document.getElementById('batchSuccess').textContent=success;
+  document.getElementById('batchFailed').textContent=failed;
+}
 async function batchAnalyze(allVenues=false){
+  if(batchRunning) return;
 
   const btn=document.getElementById('batchAnalyzeBtn');
   const status=document.getElementById('batchStatus');
@@ -1033,7 +1053,7 @@ async function batchAnalyze(allVenues=false){
   let failed=0;
   let failedRaces=[];
 
-  btn.disabled=true;
+  setBatchBusy(true);
 
   status.textContent=
   `🤖 ${selectedOption.textContent} 12R一括AI分析を開始します。0 / 12レース`;
@@ -1203,7 +1223,8 @@ async function batchAnalyze(allVenues=false){
     }
 
     status.textContent=
-      `✅ ${label}のAI分析完了\n`+
+      `${failed?'⚠️':'✅'} ${label}のAI分析終了\n`+
+      `成功：${success}レース\n`+
       `失敗：${failed}レース\n`+
       `合計：${completed}レース`+
       (failedRaces.length
@@ -1218,11 +1239,13 @@ async function batchAnalyze(allVenues=false){
 
   }finally{
 
-    btn.disabled=false;
+    updateBatchProgress(completed,total,success,failed);
+    setBatchBusy(false);
 
   }
 }
   async function batchSettle(allVenues=false){
+  if(batchRunning) return;
 
   const btn=document.getElementById('batchSettleBtn');
   const status=document.getElementById('batchStatus');
@@ -1264,9 +1287,12 @@ async function batchAnalyze(allVenues=false){
     let completed=0;
     let learned=0;
     let pending=0;
+    let already=0;
+    let missing=0;
     let failed=0;
     let failedRaces=[];
-  btn.disabled=true;
+    const failureReasons=new Set();
+  setBatchBusy(true);
 
   status.textContent=
   `📊 ${label}の結果取得・学習を開始します。0 / ${total}レース`;
@@ -1280,19 +1306,9 @@ async function batchAnalyze(allVenues=false){
 
       for(let race=1;race<=12;race++){
 
-        completed++;
-
         status.textContent=
           `📊 結果確認：${venue} ${race}R `+
-          `${completed} / ${total}レース`;
-        document.getElementById('batchProgress').textContent =
-          `${completed} / ${total}`;
-
-        document.getElementById('batchSuccess').textContent =
-          learned;
-
-        document.getElementById('batchFailed').textContent =
-          failed;
+          `${completed+1} / ${total}レース`;
 
         try{
 
@@ -1313,11 +1329,19 @@ async function batchAnalyze(allVenues=false){
 
           const x=await r.json();
 
-          if(r.ok && x.ok){
+          if(r.ok && x.ok && x.status==='already_settled'){
+
+            already++;
+
+          }else if(r.ok && x.ok){
 
             learned++;
 
-          }else if(r.status===404){
+          }else if(x.code==='prediction_missing'){
+
+            missing++;
+
+          }else if(x.code==='result_pending'){
 
             pending++;
 
@@ -1328,6 +1352,7 @@ async function batchAnalyze(allVenues=false){
             failedRaces.push(
               `${venue} ${race}R`
             );
+            failureReasons.add(x.error || '結果取得に失敗しました。');
 
             console.error(
               `${venue} ${race}R`,
@@ -1343,12 +1368,16 @@ async function batchAnalyze(allVenues=false){
           failedRaces.push(
             `${venue} ${race}R`
           );
+          failureReasons.add(e.message || '通信に失敗しました。');
 
           console.error(
             `${venue} ${race}R`,
             e
           );
 
+        }finally{
+          completed++;
+          updateBatchProgress(completed,total,learned+already,failed);
         }
 
         await new Promise(
@@ -1360,15 +1389,19 @@ async function batchAnalyze(allVenues=false){
     }
 
     status.textContent=
-      `✅ ${label}の結果取得・学習完了\n`+
-      `未処理：${pending}レース\n`+
+      `${failed?'⚠️':'✅'} ${label}の結果確認終了\n`+
+      `新たに学習：${learned}レース\n`+
+      `取得・学習済み：${already}レース\n`+
+      `結果待ち：${pending}レース\n`+
+      `予想なし：${missing}レース\n`+
       `失敗：${failed}レース\n`+
       `確認：${completed}レース`+
+      (missing ? '\n同じ日付・開催場で先にAI予想を保存してください。' : '')+
+      (failureReasons.size ? `\n失敗理由：${[...failureReasons].join('／')}` : '')+
       (failedRaces.length
         ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}`
         : '');
-    loadLearningStatus();
-    loadPerformanceStatus();
+    await Promise.all([loadLearningStatus(),loadPerformanceStatus()]);
 
   }catch(e){
 
@@ -1377,7 +1410,8 @@ async function batchAnalyze(allVenues=false){
 
   }finally{
 
-    btn.disabled=false;
+    updateBatchProgress(completed,total,learned+already,failed);
+    setBatchBusy(false);
 
   }
 

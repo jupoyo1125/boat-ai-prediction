@@ -6,6 +6,7 @@ from functools import lru_cache
 import json
 import os
 import re, requests, math, time
+import unicodedata
 from bs4 import BeautifulSoup
 from odds_parser import parse_odds
 from model import (
@@ -1169,6 +1170,55 @@ def api_learn():
     s, hit = learn_from_record(load_model(), predicted, actual)
     return jsonify({'ok':True,'hit':bool(hit),'model':s})
 
+def get_result_page(url):
+    # 結果取得は共通GETの5秒制限を使わず、一時的な通信障害だけ再試行する。
+    for attempt in range(2):
+        try:
+            return get(url, timeout=15)
+        except (requests.Timeout, requests.ConnectionError):
+            if attempt == 1:
+                raise
+
+
+@lru_cache(maxsize=96)
+def cached_official_results(date, jcd, minute):
+    # 一括取得中は同じ場の12レースを1枚の結果一覧から精算する。
+    # 未確定のレースがある日は、1分ごとに一覧を取り直す。
+    url = f'{BASE}resultlist?hd={date}&jcd={jcd}'
+    html = unicodedata.normalize('NFKC', get_result_page(url))
+    return parse_resultlist(html)
+
+
+def fetch_official_result(date, jcd, race):
+    list_source = f'{BASE}resultlist?hd={date}&jcd={jcd}'
+    try:
+        results = cached_official_results(date, jcd, int(time.time() // 60))
+        for result in results:
+            if result['race'] == race and (result.get('payout') or 0) > 0:
+                return dict(result), list_source, None
+    except requests.RequestException:
+        # 一覧が取得できない場合は、指定レースの結果ページを使う。
+        pass
+
+    source = f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
+    soup = BeautifulSoup(get_result_page(source), 'html.parser')
+    text = unicodedata.normalize('NFKC', soup.get_text(' ', strip=True))
+    for dash in ('−', '―', 'ー'):
+        text = text.replace(dash, '-')
+    pattern = r'3連単\s*([1-6])\s*-\s*([1-6])\s*-\s*([1-6])'
+    match = re.search(pattern, text)
+    if not match:
+        return None, source, 'result_pending'
+    combo = ''.join(match.groups())
+    if len(set(combo)) != 3:
+        raise ValueError('取得した3連単結果が不正です。')
+    payout_match = re.search(pattern + r'\s*¥\s*([0-9][0-9,]*)', text)
+    payout = int(payout_match.group(4).replace(',', '')) if payout_match else 0
+    if payout <= 0:
+        return None, source, 'payout_missing'
+    return {'race': race, 'combo': combo, 'payout': payout}, source, None
+
+
 @app.post('/api/settle_prediction')
 def api_settle_prediction():
     data = request.get_json(force=True)
@@ -1177,100 +1227,56 @@ def api_settle_prediction():
         data.get('date') or datetime.now().strftime('%Y%m%d')
     ).replace('/', '').replace('-', '')
 
-    jcd = str(data.get('stadium', '15'))
-    race = int(data.get('race', 1))
+    jcd = str(data.get('stadium', '15')).zfill(2)
+    try:
+        datetime.strptime(date, '%Y%m%d')
+        race = int(data.get('race', 1))
+        if jcd not in STADIUMS or race not in range(1, 13):
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'code': 'invalid_race',
+                        'error': '日付・開催場・レース番号を確認してください。'}), 400
 
-    # 指定レースの公式結果ページを直接取得
     result_source = (
         f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
     )
 
     try:
-        result_html = get(result_source)
-        soup = BeautifulSoup(result_html, 'html.parser')
-
-        # ページ全体の文字を取得
-        text = soup.get_text(' ', strip=True)
-
-        # 記号を半角に統一
-        text = (
-            text.replace('－', '-')
-                .replace('−', '-')
-                .replace('―', '-')
-                .replace('ー', '-')
-                .replace('￥', '¥')
-        )
-
-        # 3連単の結果を取得
-        tri_match = re.search(
-            r'3連単\s*([1-6])\s*-\s*([1-6])\s*-\s*([1-6])',
-            text
-        )
-
-        if not tri_match:
-            return jsonify({
-                'ok': False,
-                'error': '指定レースの3連単結果を取得できませんでした。',
-                'source': result_source
-            }), 404
-
-        combo = ''.join(tri_match.groups())
-
-        # 同じ艇が重複していないか確認
-        if len(set(combo)) != 3:
-            return jsonify({
-                'ok': False,
-                'error': '取得した3連単結果が不正です。',
-                'source': result_source
-            }), 502
-
-        # 3連単の直後にある払戻金を取得
-        payout_match = re.search(
-            r'3連単\s*[1-6]\s*-\s*[1-6]\s*-\s*[1-6]'
-            r'.{0,100}?¥\s*([0-9][0-9,]*)',
-            text
-        )
-
-        official_payout = 0
-
-        if payout_match:
-            official_payout = int(
-                payout_match.group(1).replace(',', '')
-            )
-
-        if official_payout <= 0:
-            return jsonify({
-                'ok': False,
-                'error': '指定レースの3連単払戻金を取得できませんでした。',
-                'source': result_source,
-            }), 404
-
-        result = {
-            'race': race,
-            'combo': combo,
-            'payout': official_payout
-        }
-
-        # 保存済みAI予想を取得
         rows = load_ledger()
-
         candidates = [
             r for r in rows
             if str(r.get('date', '')).replace('/', '').replace('-', '') == date
-            and str(r.get('stadium', '')) == jcd
+            and str(r.get('stadium', '')).zfill(2) == jcd
             and int(r.get('race', 0) or 0) == race
-            and not r.get('learned', False)
         ]
 
         if not candidates:
             return jsonify({
                 'ok': False,
-                'error': '未学習の予想記録が見つかりません。先にAI予想を実行してください。',
-                'result': result,
+                'code': 'prediction_missing',
+                'error': '保存済みの予想がありません。同じ日付・開催場で先にAI予想を保存してください。',
                 'source': result_source
             }), 404
 
         row = candidates[-1]
+        if row.get('learned', False):
+            return jsonify({
+                'ok': True, 'status': 'already_settled', 'record': row,
+                'model': load_model(), 'source': 'saved',
+                'result': {'race': race, 'combo': row.get('actual_combo', ''),
+                           'payout': row.get('official_payout', 0)},
+                'learning_hit': bool(row.get('learn_hit')),
+            })
+
+        result, result_source, error_code = fetch_official_result(date, jcd, race)
+        if result is None:
+            pending = error_code == 'result_pending'
+            return jsonify({
+                'ok': False, 'code': error_code, 'source': result_source,
+                'error': ('公式結果がまだ確定していません。時間をおいて再実行してください。'
+                          if pending else '指定レースの3連単払戻金を取得できませんでした。'),
+            }), 404 if pending else 502
+        official_payout = result['payout']
 
         # 実際の結果を保存
         actual_combo = result['combo']
@@ -1344,6 +1350,7 @@ def api_settle_prediction():
 
         return jsonify({
             'ok': True,
+            'status': 'settled',
             'result': result,
             'record': row,
             'learning_hit': bool(hit),
@@ -1351,9 +1358,16 @@ def api_settle_prediction():
             'source': result_source
         })
 
+    except requests.RequestException:
+        return jsonify({
+            'ok': False, 'code': 'official_unavailable',
+            'error': '公式サイトとの通信に失敗しました。時間をおいて再実行してください。',
+            'source': result_source,
+        }), 502
     except Exception as e:
         return jsonify({
             'ok': False,
+            'code': 'settlement_failed',
             'error': str(e),
             'source': result_source
         }), 502
