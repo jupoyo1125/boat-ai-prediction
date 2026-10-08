@@ -311,10 +311,28 @@ AIが現在重視している特徴
 </div>
 </section>
 <section class="panel" style="margin-top:16px">
+<h2>過去10年の検証・学習</h2>
+<div class="metrics">
+<div class="metric"><small>処理した日数</small><b id="historyDays">-</b></div>
+<div class="metric"><small>学習したレース</small><b id="historySamples">-</b></div>
+<div class="metric"><small>回収率の検証対象</small><b id="historyEvaluated">-</b></div>
+<div class="metric"><small>データ不足・除外</small><b id="historyExcluded">-</b></div>
+</div>
+<div class="bar"><i id="historyProgress" style="width:0%"></i></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+<button id="historyStart" onclick="controlHistorical('start')">過去10年の検証を開始</button>
+<button id="historyPause" class="secondary" onclick="controlHistorical('pause')" disabled>一時停止</button>
+</div>
+<button id="historyApply" class="secondary" style="margin-top:10px" onclick="controlHistorical('apply_model')" disabled>完了した学習モデルを本番に適用</button>
+<div class="status" id="historyStatus">前日までのモデルで予測し、結果を照合して次の日の学習に使います。画面を閉じても、サーバーが稼働中は処理を続けます。</div>
+<p style="color:var(--muted);font-size:13px">過去検証には保存された締切時オッズを使います。現在の自動予想の実績とは分けて集計し、オッズのないレースは回収率から除外します。通信失敗やサーバー再起動後は、保存済みの位置から再開します。</p>
+</section>
+<section class="panel" style="margin-top:16px">
 <h2>運用実績</h2>
 <label for="perfScope" style="color:var(--muted)">集計対象</label>
 <select id="perfScope" style="margin:8px 0 16px;max-width:360px">
 <option value="automatic">自動予想の累計</option>
+<option value="historical">過去10年の検証（締切時オッズ）</option>
 <option value="all">すべての保存記録（手動予想を含む）</option>
 </select>
 <div class="performance-categories">
@@ -547,8 +565,11 @@ async function loadPerformanceStatus(){
       note.textContent='区分別の運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
       return;
     }
-    const automatic=document.getElementById('perfScope').value==='automatic';
-    const categoryStats=automatic ? (x.automatic_category_stats||{}) : x.category_stats;
+    const scope=document.getElementById('perfScope').value;
+    const automatic=scope==='automatic';
+    if(x.historical) renderHistorical(x.historical);
+    const categoryStats=scope==='historical' ? (x.historical?.category_stats||{}) :
+      automatic ? (x.automatic_category_stats||{}) : x.category_stats;
     const categories=[['gachi','Gachi'],['roman','Roman'],['oni','Oni']];
     for(const [category,id] of categories){
       const s=categoryStats[category] || {};
@@ -560,13 +581,76 @@ async function loadPerformanceStatus(){
       hitRate.title='結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R';
     }
     note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計します。';
-    note.textContent+=automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
-    if(Number(x.legacy_records||0)>0){
+    note.textContent+=scope==='historical' ? ' 過去の再現検証です。前日までに学習したモデルと締切時オッズを使います。予想を当時保存した運用実績とは異なります。オッズ・展示・結果がそろうレースだけが回収率の対象です。' :
+      automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
+    if(scope!=='historical' && Number(x.legacy_records||0)>0){
       note.textContent+=' 区分情報のない過去の記録は含みません。';
     }
   }catch(e){
     console.error('運用実績取得エラー',e);
     note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
+  }
+}
+function renderHistorical(status){
+  const formatDate=value=>String(value||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1/$2/$3');
+  const count=value=>Number(value||0).toLocaleString('ja-JP');
+  const completed=status.phase==='completed';
+  const active=Boolean(status.enabled);
+  document.getElementById('historyDays').textContent=status.exists ? count(status.days_done)+' / '+count(status.total_days)+'日' : '未開始';
+  document.getElementById('historySamples').textContent=count(status.samples)+'R';
+  document.getElementById('historyEvaluated').textContent=count(status.evaluated)+'R';
+  document.getElementById('historyExcluded').textContent=count(Number(status.missing_odds||0)+Number(status.missing_features||0)+Number(status.excluded_results||0))+'R';
+  document.getElementById('historyProgress').style.width=Math.max(0,Math.min(100,Number(status.progress||0)))+'%';
+  const start=document.getElementById('historyStart');
+  start.textContent=completed ? '検証完了' : active ? '処理を継続中' : status.exists ? '保存位置から再開' : '過去10年の検証を開始';
+  start.disabled=completed||active;
+  document.getElementById('historyPause').disabled=!active;
+  const apply=document.getElementById('historyApply');
+  apply.disabled=!completed||Number(status.samples||0)<1000||Boolean(status.model_applied_at);
+  apply.textContent=status.model_applied_at ? '学習モデルを本番に適用済み' : '完了した学習モデルを本番に適用';
+  const phase={queued:'開始・再開待ち',running:'検証・学習中',retry:'通信の復旧を待っています',paused:'一時停止中',error:'取得を停止しています',completed:'全期間の処理が完了しました'}[status.phase]||'未開始';
+  let message=formatDate(status.start_date)+' ～ '+formatDate(status.end_date)+'｜'+phase;
+  if(status.exists && !completed) message+='｜処理中の日付：'+formatDate(status.cursor);
+  if(status.error) message+='。'+status.error;
+  message+='。オッズ不足 '+count(status.missing_odds)+'R、出走・展示不足 '+count(status.missing_features)+'R、返還・不完全な結果など '+count(status.excluded_results)+'R。';
+  message+=' 学習は過去検証用モデルに保存されます。本番に適用するまでは、現在の学習モデルで自動予想を続けます。';
+  document.getElementById('historyStatus').textContent=message;
+}
+async function controlHistorical(action){
+  const status=document.getElementById('historyStatus');
+  for(const id of ['historyStart','historyPause','historyApply']) document.getElementById(id).disabled=true;
+  try{
+    const response=await fetch('/api/historical',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    const data=await response.json();
+    if(!response.ok || !data.ok) throw new Error(data.error||'操作を確認できませんでした。');
+    renderHistorical(data);
+    await Promise.all([loadPerformanceStatus(),loadLearningStatus()]);
+  }catch(error){
+    console.error('過去検証の操作エラー',error);
+    try{
+      const response=await fetch('/api/historical');
+      const data=await response.json();
+      if(response.ok && data.ok) renderHistorical(data);
+    }catch(readError){console.error(readError);}
+    status.textContent+=' 操作結果：'+error.message+' 状況を再取得してから操作してください。';
+  }
+}
+async function loadHistoricalStatus(){
+  try{
+    const response=await fetch('/api/historical');
+    const data=await response.json();
+    if(!response.ok || !data.ok) throw new Error(data.error||'過去検証の状況を取得できませんでした。');
+    renderHistorical(data);
+    if(document.getElementById('perfScope').value==='historical'){
+      for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
+        const record=data.category_stats?.[category]||{};
+        document.getElementById('perf'+id+'Roi').textContent=record.roi==null ? '-' : Number(record.roi).toFixed(1)+'%';
+        document.getElementById('perf'+id+'HitRate').textContent=record.hit_rate==null ? '-' : Number(record.hit_rate).toFixed(1)+'%';
+      }
+    }
+  }catch(error){
+    console.error('過去検証の状況取得エラー',error);
+    document.getElementById('historyStatus').textContent='過去検証の状況を取得できませんでした。保存済みの進捗は保持されます。画面を再読み込みして確認してください。';
   }
 }
 async function loadAutomationStatus(){
@@ -1270,6 +1354,9 @@ loadAutomationStatus();
 setInterval(()=>{
   if(!document.hidden) loadAutomationStatus();
 },15000);
+setInterval(()=>{
+  if(!document.hidden) loadHistoricalStatus();
+},30000);
 
 </script>
 </body>
