@@ -19,9 +19,27 @@ from model import (
 from state_store import (
     atomic_state, state_atomic, state_connection, in_state_transaction,
     atomic_write_json, remember_ledger, ledger_snapshot, storage_required,
+    database_url, storage_paused, require_storage_writable, StorageMaintenance,
 )
+from storage_migration import initialize_storage, storage_report
+
+initialize_storage()
 
 app = Flask(__name__, static_folder='static')
+
+@app.before_request
+def pause_storage_updates():
+    if storage_paused() and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return storage_maintenance_response(StorageMaintenance())
+
+
+@app.errorhandler(StorageMaintenance)
+def storage_maintenance_response(error):
+    response = jsonify({'ok': False, 'code': 'storage_maintenance',
+                        'error': '保存先の移行中です。更新は完了後に再開します。'})
+    response.status_code = 503
+    response.headers['Retry-After'] = '120'
+    return response
 
 @app.after_request
 def add_cors_headers(response):
@@ -32,7 +50,8 @@ def add_cors_headers(response):
 
 @app.route('/health', methods=['GET', 'OPTIONS'])
 def health():
-    return jsonify({'ok': True, 'service': 'boat-ai-api-v2', 'status': 'live'})
+    return jsonify({'ok': True, 'service': 'boat-ai-api-v2', 'status': 'live',
+                    'storage': storage_report()})
 
 BASE = 'https://www.boatrace.jp/owpc/pc/race/'
 HEAD = {'User-Agent': 'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
@@ -41,7 +60,7 @@ BET_UNIT = 100
 BET_CATEGORIES = ('gachi', 'roman', 'oni')
 FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st', 'history']
 def _database_url():
-    return os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+    return database_url()
 
 
 def _db_enabled():
@@ -53,7 +72,7 @@ def _db_connect():
 
 
 def _ensure_ledger_table():
-    if not _db_enabled():
+    if not _db_enabled() or storage_paused():
         return
 
     with _db_connect() as conn:
@@ -167,7 +186,7 @@ def load_ledger():
                 rows.append(record)
 
             # 既存のローカル台帳があれば初回だけPostgreSQLへ移行
-            if not rows and LEDGER.exists():
+            if not rows and LEDGER.exists() and not storage_paused():
                 try:
                     legacy = json.loads(
                         LEDGER.read_text(encoding='utf-8')
@@ -200,6 +219,7 @@ def load_ledger():
 
 
 def save_ledger(rows):
+    require_storage_writable()
     rows = rows or []
 
     if _db_enabled():
