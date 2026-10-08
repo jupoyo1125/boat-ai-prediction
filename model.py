@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from state_store import state_connection, in_state_transaction, atomic_write_json, storage_required
 
 PATH = os.path.join(os.path.dirname(__file__), "model_state.json")
 
@@ -30,8 +31,7 @@ def _db_enabled():
 
 
 def _db_connect():
-    import psycopg
-    return psycopg.connect(_database_url())
+    return state_connection(_database_url())
 
 
 def _ensure_table():
@@ -94,6 +94,8 @@ def load():
             return state
 
         except Exception:
+            if in_state_transaction() or storage_required():
+                raise
             pass
 
     if not os.path.exists(PATH):
@@ -140,15 +142,11 @@ def save(state):
             return
 
         except Exception:
+            if in_state_transaction() or storage_required():
+                raise
             pass
 
-    with open(PATH, "w", encoding="utf-8") as f:
-        json.dump(
-            state,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    atomic_write_json(PATH, state)
 
 
 def normalize_weights(weights):
@@ -318,3 +316,4 @@ def learn_from_record(
     save(state)
 
     return state, bool(hit)
+

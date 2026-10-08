@@ -1,12 +1,13 @@
 from flask import Flask, jsonify, request, send_from_directory
 from itertools import permutations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import lru_cache
 import json
 import os
 import re, requests, math, time
 import unicodedata
+import sys
 from bs4 import BeautifulSoup
 from odds_parser import parse_odds
 from model import (
@@ -14,6 +15,10 @@ from model import (
     save as save_model,
     learn_from_record,
     learn_from_features,
+)
+from state_store import (
+    atomic_state, state_atomic, state_connection, in_state_transaction,
+    atomic_write_json, remember_ledger, ledger_snapshot, storage_required,
 )
 
 app = Flask(__name__, static_folder='static')
@@ -44,8 +49,7 @@ def _db_enabled():
 
 
 def _db_connect():
-    import psycopg
-    return psycopg.connect(_database_url())
+    return state_connection(_database_url())
 
 
 def _ensure_ledger_table():
@@ -80,7 +84,9 @@ def get_active_stadiums(date):
     date = normalize_date(date)
 
     url = f'https://www.boatrace.jp/owpc/pc/race/index?hd={date.replace("-", "")}'
-    html = requests.get(url, headers=HEAD, timeout=15).text
+    response = requests.get(url, headers=HEAD, timeout=15)
+    response.raise_for_status()
+    html = response.text
 
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -173,10 +179,12 @@ def load_ledger():
                     save_ledger(legacy)
                     return legacy
 
+            remember_ledger(rows)
             return rows
 
         except Exception:
-            # DB接続に失敗した場合はローカル保存へフォールバック
+            if in_state_transaction() or storage_required():
+                raise
             pass
 
     if not LEDGER.exists():
@@ -199,15 +207,25 @@ def save_ledger(rows):
             _ensure_ledger_table()
 
             with _db_connect() as conn:
-                conn.execute(
-                    "DELETE FROM performance_ledger"
-                )
+                previous = ledger_snapshot()
+                if previous is None:
+                    previous = {
+                        str(item[0]): json.dumps(item[1], sort_keys=True, ensure_ascii=False)
+                        for item in conn.execute('SELECT id, record FROM performance_ledger').fetchall()
+                    }
+                current_ids = {str(row['id']) for row in rows if row.get('id')}
+                removed = list(set(previous) - current_ids)
+                if removed:
+                    conn.execute('DELETE FROM performance_ledger WHERE id = ANY(%s)', (removed,))
 
                 for row in rows:
                     row_id = str(
                         row.get('id')
                         or datetime.now().strftime('%Y%m%d%H%M%S%f')
                     )
+
+                    if previous.get(row_id) == json.dumps(row, sort_keys=True, ensure_ascii=False):
+                        continue
 
                     conn.execute(
                         """
@@ -229,7 +247,7 @@ def save_ledger(rows):
                 conn.commit()
 
             # DB保存成功後は旧ローカル台帳を削除
-            if LEDGER.exists():
+            if LEDGER.exists() and not in_state_transaction():
                 try:
                     LEDGER.unlink()
                 except Exception:
@@ -238,17 +256,11 @@ def save_ledger(rows):
             return
 
         except Exception:
-            # DB接続に失敗した場合はローカル保存
+            if in_state_transaction() or storage_required():
+                raise
             pass
 
-    LEDGER.write_text(
-        json.dumps(
-            rows,
-            ensure_ascii=False,
-            indent=2
-        ),
-        encoding='utf-8'
-    )
+    atomic_write_json(LEDGER, rows)
 def ledger_stats(rows):
     bets = sum(float(r.get('investment', 0) or 0) for r in rows)
     payouts = sum(float(r.get('payout', 0) or 0) for r in rows)
@@ -445,14 +457,14 @@ def value(cells, labels):
     return None
 
 def parse_before(html):
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(unicodedata.normalize('NFKC', html), 'html.parser')
     text = soup.get_text(' ', strip=True)
     out = {'wind':None,'wave':None,'air':None,'water':None,'exhibition':{},'exhibition_st':{}}
     patterns = {
-        'wind': r'é¢¨é\s*([0-9.]+)\s*m',
-        'wave': r'æ³¢é«\s*([0-9.]+)\s*cm',
-        'air': r'æ°æ¸©\s*([0-9.]+)â',
-        'water': r'æ°´æ¸©\s*([0-9.]+)â'
+        'wind': r'風速\s*([0-9.]+)\s*m',
+        'wave': r'波高\s*([0-9.]+)\s*cm',
+        'air': r'気温\s*([0-9.]+)',
+        'water': r'水温\s*([0-9.]+)'
     }
     for k, p in patterns.items():
         m = re.search(p, text)
@@ -466,11 +478,18 @@ def parse_before(html):
         if not b:
             continue
         ex = num(cells[4]) if len(cells) > 4 else None
-        if ex is not None:
+        if ex is not None and 5 <= ex <= 9:
             out['exhibition'][b] = ex
-        sts = [float(x.lstrip('.'))/100 for x in cells if re.fullmatch(r'\.?\d{2}', x) and not x.startswith('F')]
-        if sts:
-            out['exhibition_st'][b] = sts[-1]
+    # 展示STは「前走成績」のSTと別の、スタート展示の専用欄から読む。
+    for item in soup.select('.table1_boatImage1'):
+        number = item.select_one('.table1_boatImage1Number')
+        value_node = item.select_one('.table1_boatImage1Time')
+        if number is None or value_node is None:
+            continue
+        b = boat_no(number.get_text(strip=True))
+        st = value_node.get_text(strip=True).replace(' ', '')
+        if b and re.fullmatch(r'F?\.\d{2}', st):
+            out['exhibition_st'][b] = (-1 if st.startswith('F') else 1) * float(st.lstrip('F'))
     return out
 
 def parse_resultlist(html):
@@ -1038,6 +1057,9 @@ def api_performance():
         'ok': True,
         'stats': ledger_stats(rows),
         'category_stats': category_ledger_stats(rows),
+        'automatic_category_stats': category_ledger_stats([
+            row for row in rows if row.get('prediction_origin') == 'automatic'
+        ]),
         'legacy_records': sum(1 for row in rows if row.get('performance_version') != 2),
         'records': rows[-100:],
     })
@@ -1071,6 +1093,7 @@ def api_saved_prediction():
     })
 
 @app.post('/api/performance')
+@state_atomic
 def api_performance_add():
     data = request.get_json(force=True)
     try:
@@ -1117,6 +1140,9 @@ def api_performance_add():
         ]
 
         if same_race:
+            if any(r.get('prediction_origin') == 'automatic' for r in same_race):
+                return jsonify({'ok': False, 'code': 'prediction_frozen',
+                                'error': '展示後の自動予想を保存済みです。実績用の買い目は変更できません。'}), 409
             # 未学習の記録があれば、それを更新
             unlearned = [
                 r for r in same_race
@@ -1151,6 +1177,7 @@ def api_performance_add():
         return jsonify({'ok':False,'error':str(e)}), 400
 
 @app.delete('/api/performance')
+@state_atomic
 def api_performance_delete():
     rows = load_ledger()
     save_ledger([])
@@ -1161,6 +1188,7 @@ def api_model():
     return jsonify({'ok':True,'model':load_model()})
 
 @app.post('/api/learn')
+@state_atomic
 def api_learn():
     data = request.get_json(force=True)
     predicted = [int(x) for x in data.get('predicted_order',[])][:6]
@@ -1222,11 +1250,7 @@ def fetch_official_result(date, jcd, race):
 @app.post('/api/settle_prediction')
 def api_settle_prediction():
     data = request.get_json(force=True)
-
-    date = str(
-        data.get('date') or datetime.now().strftime('%Y%m%d')
-    ).replace('/', '').replace('-', '')
-
+    date = normalize_date(data.get('date'))
     jcd = str(data.get('stadium', '15')).zfill(2)
     try:
         datetime.strptime(date, '%Y%m%d')
@@ -1236,141 +1260,131 @@ def api_settle_prediction():
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'code': 'invalid_race',
                         'error': '日付・開催場・レース番号を確認してください。'}), 400
+    payload, status = settle_saved_prediction(date, jcd, race)
+    return jsonify(payload), status
 
-    result_source = (
-        f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
-    )
 
+def already_settled(row, race):
+    return {'ok': True, 'status': 'already_settled', 'record': row,
+            'model': load_model(), 'source': 'saved',
+            'result': {'race': race, 'combo': row.get('actual_combo', ''),
+                       'payout': row.get('official_payout', 0)},
+            'learning_hit': bool(row.get('learn_hit'))}, 200
+
+
+def settle_saved_prediction(date, jcd, race, official_result=None):
+    result_source = f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
     try:
-        rows = load_ledger()
-        candidates = [
-            r for r in rows
-            if str(r.get('date', '')).replace('/', '').replace('-', '') == date
-            and str(r.get('stadium', '')).zfill(2) == jcd
-            and int(r.get('race', 0) or 0) == race
+        candidates = [row for row in load_ledger() if race_key(row) == (date, jcd, race)]
+        if not candidates:
+            return {'ok': False, 'code': 'prediction_missing', 'source': result_source,
+                    'error': '保存済みの予想がありません。同じ日付・開催場で先にAI予想を保存してください。'}, 404
+        if candidates[-1].get('learned'):
+            return already_settled(candidates[-1], race)
+        if official_result is None:
+            result, result_source, error_code = fetch_official_result(date, jcd, race)
+            if result is None:
+                pending = error_code == 'result_pending'
+                return {'ok': False, 'code': error_code, 'source': result_source,
+                        'error': ('公式結果がまだ確定していません。時間をおいて再実行してください。'
+                                  if pending else '指定レースの3連単払戻金を取得できませんでした。')}, 404 if pending else 502
+        else:
+            result = official_result
+        return apply_official_result(date, jcd, race, result, result_source)
+    except requests.RequestException:
+        return {'ok': False, 'code': 'official_unavailable', 'source': result_source,
+                'error': '公式サイトとの通信に失敗しました。時間をおいて再実行してください。'}, 502
+    except Exception:
+        app.logger.exception('Settlement failed date=%s stadium=%s race=%s', date, jcd, race)
+        return {'ok': False, 'code': 'settlement_failed', 'source': result_source,
+                'error': '結果の保存に失敗しました。記録を確定せず、次回再確認します。'}, 502
+
+
+@state_atomic
+def apply_official_result(date, jcd, race, result, result_source):
+    # Reload under the shared PostgreSQL lock, after external communication.
+    rows = load_ledger()
+    candidates = [row for row in rows if race_key(row) == (date, jcd, race)]
+    if not candidates:
+        return {'ok': False, 'code': 'prediction_missing', 'error': '保存済みの予想がありません。'}, 404
+    row = candidates[-1]
+    if row.get('learned'):
+        return already_settled(row, race)
+    official_payout = result['payout']
+    # 実際の結果を保存
+    actual_combo = result['combo']
+    row['actual_combo'] = actual_combo
+
+    row['official_payout'] = official_payout
+    row['settled'] = True
+
+    if row.get('performance_version') == 2:
+        apply_category_accounting(row)
+    else:
+        # 区分情報のない既存記録は、保存時の金額・買い目で精算する。
+        row['hit'] = bool(row.get('combo') == actual_combo)
+        investment = float(row.get('investment', 0) or 0)
+        row['payout'] = (
+            round(official_payout * (investment / 100.0), 2)
+            if row['hit'] and investment > 0 else 0
+        )
+        row['profit'] = row['payout'] - investment
+
+    # 学習処理
+    actual_first = int(actual_combo[0])
+    predicted_first = row.get('predicted_first')
+    features = row.get('features') or {}
+
+    predicted_features = {}
+
+    if (
+        isinstance(features, dict)
+        and predicted_first in range(1, 7)
+    ):
+        predicted_features = (
+            features.get(str(predicted_first))
+            or features.get(predicted_first)
+            or {}
+        )
+
+    if predicted_features:
+        actual_features = (
+            features.get(str(actual_first))
+            or features.get(actual_first)
+            or {}
+        )
+
+        state, hit = learn_from_features(
+            load_model(),
+            predicted_features,
+            actual_first,
+            predicted_first,
+            actual_features
+        )
+
+    else:
+        predicted_order = [
+            int(x)
+            for x in str(row.get('combo', ''))
+            if x.isdigit()
         ]
 
-        if not candidates:
-            return jsonify({
-                'ok': False,
-                'code': 'prediction_missing',
-                'error': '保存済みの予想がありません。同じ日付・開催場で先にAI予想を保存してください。',
-                'source': result_source
-            }), 404
+        state, hit = learn_from_record(
+            load_model(),
+            predicted_order,
+            actual_first
+        )
 
-        row = candidates[-1]
-        if row.get('learned', False):
-            return jsonify({
-                'ok': True, 'status': 'already_settled', 'record': row,
-                'model': load_model(), 'source': 'saved',
-                'result': {'race': race, 'combo': row.get('actual_combo', ''),
-                           'payout': row.get('official_payout', 0)},
-                'learning_hit': bool(row.get('learn_hit')),
-            })
+    row['learned'] = True
+    row['learn_hit'] = bool(hit)
 
-        result, result_source, error_code = fetch_official_result(date, jcd, race)
-        if result is None:
-            pending = error_code == 'result_pending'
-            return jsonify({
-                'ok': False, 'code': error_code, 'source': result_source,
-                'error': ('公式結果がまだ確定していません。時間をおいて再実行してください。'
-                          if pending else '指定レースの3連単払戻金を取得できませんでした。'),
-            }), 404 if pending else 502
-        official_payout = result['payout']
+    # データを保存
+    row['result_confirmed_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    save_ledger(rows)
 
-        # 実際の結果を保存
-        actual_combo = result['combo']
-        row['actual_combo'] = actual_combo
+    return {'ok': True, 'status': 'settled', 'result': result, 'record': row,
+            'learning_hit': bool(hit), 'model': state, 'source': result_source}, 200
 
-        row['official_payout'] = official_payout
-        row['settled'] = True
-
-        if row.get('performance_version') == 2:
-            apply_category_accounting(row)
-        else:
-            # 区分情報のない既存記録は、保存時の金額・買い目で精算する。
-            row['hit'] = bool(row.get('combo') == actual_combo)
-            investment = float(row.get('investment', 0) or 0)
-            row['payout'] = (
-                round(official_payout * (investment / 100.0), 2)
-                if row['hit'] and investment > 0 else 0
-            )
-            row['profit'] = row['payout'] - investment
-
-        # 学習処理
-        actual_first = int(actual_combo[0])
-        predicted_first = row.get('predicted_first')
-        features = row.get('features') or {}
-
-        predicted_features = {}
-
-        if (
-            isinstance(features, dict)
-            and predicted_first in range(1, 7)
-        ):
-            predicted_features = (
-                features.get(str(predicted_first))
-                or features.get(predicted_first)
-                or {}
-            )
-
-        if predicted_features:
-            actual_features = (
-                features.get(str(actual_first))
-                or features.get(actual_first)
-                or {}
-            )
-
-            state, hit = learn_from_features(
-                load_model(),
-                predicted_features,
-                actual_first,
-                predicted_first,
-                actual_features
-            )
-
-        else:
-            predicted_order = [
-                int(x)
-                for x in str(row.get('combo', ''))
-                if x.isdigit()
-            ]
-
-            state, hit = learn_from_record(
-                load_model(),
-                predicted_order,
-                actual_first
-            )
-
-        row['learned'] = True
-        row['learn_hit'] = bool(hit)
-
-        # データを保存
-        save_ledger(rows)
-
-        return jsonify({
-            'ok': True,
-            'status': 'settled',
-            'result': result,
-            'record': row,
-            'learning_hit': bool(hit),
-            'model': state,
-            'source': result_source
-        })
-
-    except requests.RequestException:
-        return jsonify({
-            'ok': False, 'code': 'official_unavailable',
-            'error': '公式サイトとの通信に失敗しました。時間をおいて再実行してください。',
-            'source': result_source,
-        }), 502
-    except Exception as e:
-        return jsonify({
-            'ok': False,
-            'code': 'settlement_failed',
-            'error': str(e),
-            'source': result_source
-        }), 502
 @app.get('/api/backtest')
 def api_backtest():
     jcd = request.args.get('stadium','15')
@@ -1719,78 +1733,127 @@ def api_odds_debug_all_status():
         })
 @app.get('/api/analyze')
 def api_analyze():
-    date = request.args.get('date',datetime.now().strftime('%Y%m%d')).replace('/','').replace('-','')
-    jcd = request.args.get('stadium','15')
-    race = int(request.args.get('race','9'))
-    fixed = request.args.get('fixed','none')
-    days = int(request.args.get('history_days','30'))
+    date = normalize_date(request.args.get('date'))
+    jcd = str(request.args.get('stadium', '15')).zfill(2)
+    try:
+        race = int(request.args.get('race', '9'))
+        prediction = predict_race(date, jcd, race, request.args.get('fixed', 'none'),
+                                  int(request.args.get('history_days', '30')))
+        return jsonify(prediction)
+    except Exception as error:
+        return jsonify({'ok': False, 'error': str(error)}), 502
+
+
+def predict_race(date, jcd, race, fixed='none', days=3, before=None):
     source = f'{BASE}racelist?hd={date}&jcd={jcd}&rno={race:02d}'
     before_source = f'{BASE}beforeinfo?hd={date}&jcd={jcd}&rno={race:02d}'
     odds_source = f'{BASE}odds3t?hd={date}&jcd={jcd}&rno={race:02d}'
-    try:
-        # 予想対象レースより未来の結果を使わない
-        target_date = datetime.strptime(
-            date,
-            '%Y%m%d'
-        ).date()
+    if jcd not in STADIUMS or race not in range(1, 13):
+        raise ValueError('開催場・レース番号を確認してください。')
+    # 予想対象レースより未来の結果を使わない
+    target_date = datetime.strptime(
+        date,
+        '%Y%m%d'
+    ).date()
 
-        history_end = (
-            target_date - timedelta(days=1)
-        ).strftime('%Y%m%d')
+    history_end = (
+        target_date - timedelta(days=1)
+    ).strftime('%Y%m%d')
 
-        hist = historical_stats(
-            jcd,
-            days,
-            history_end
-        )
-        before = parse_before(
-            requests.get(
-                before_source,
-                headers=HEAD,
-                timeout=15
-            ).text
-        )
-        boats = analyze(
-                boats_from(get(source, timeout=15)),
+    hist = historical_stats(
+        jcd,
+        days,
+        history_end
+    )
+    if before is None:
+        before = parse_before(get(before_source, timeout=15))
+    entries = boats_from(get(source, timeout=15))
+    if set(entries) != set(range(1, 7)):
+        raise ValueError('6艇の出走表がそろっていません。次回再確認してください。')
+    boats = analyze(entries, fixed, before, hist)
+
+    odds = parse_odds(
+        get(odds_source, timeout=15)
+    )
+
+    race_scenario = scenario(
+        boats,
+        before
+    )
+
+    combos = build_bets(
+        boats,
+        odds,
         fixed,
-        before,
-        hist
-        )
+        race_scenario
+    )
 
-        odds = parse_odds(
-            get(odds_source, timeout=15)
-        )
+    boats.sort(
+        key=lambda x:x['score'],
+        reverse=True
+    )
+    return {
+        'ok':True,'venue':STADIUMS.get(jcd,jcd),'boats':boats,
+        'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
+        'scenario':scenario(boats,before),'bets':combos,
+        'history':hist,
+        'features':feature_snapshot(boats),
+        'weather':{'wind':before['wind'],'wave':before['wave'],'air':before['air'],'water':before['water']},
+        'odds_count':sum(v is not None for v in odds.values()),
+        'notice':f'公式出走表・展示・3連単オッズと、前日までの{hist["races"]}レースを使った予想です。',
+        'source':source,'before_source':before_source,'odds_source':odds_source
+    }
 
-        race_scenario = scenario(
-            boats,
-            before
-        )
+def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at, clock=None):
+    clock = clock or (lambda: datetime.now(timezone(timedelta(hours=9))))
+    with atomic_state():
+        if clock() >= deadline - timedelta(seconds=30):
+            return None
+        rows = load_ledger()
+        existing = [row for row in rows if race_key(row) == (date, jcd, race)]
+        if any(row.get('prediction_origin') == 'automatic' or row.get('settled') for row in existing):
+            return None
+        bets = normalize_category_bets(prediction.get('bets') or [])
+        saved_at = clock()
+        if saved_at >= deadline - timedelta(seconds=30):
+            return None
+        row = {
+            'id': f'auto:{date}:{jcd}:{race:02d}',
+            'date': date, 'stadium': jcd, 'race': race,
+            'combo': str(bets[0]['bet']).replace('-', '') if bets else '',
+            'predicted_first': prediction['main'], 'features': prediction['features'],
+            'bets': bets, 'performance_version': 2,
+            'prediction_origin': 'automatic',
+            'prediction_saved_at': saved_at.isoformat(timespec='seconds'),
+            'exhibition_detected_at': detected_at.isoformat(timespec='seconds'),
+            'scheduled_deadline': deadline.isoformat(timespec='seconds'),
+            'prediction': prediction, 'actual_combo': '', 'settled': False,
+            'learned': False, 'note': '展示後の自動AI予想・各買い目100円',
+        }
+        apply_category_accounting(row)
+        rows.append(row)
+        save_ledger(rows)
+        return row
 
-        combos = build_bets(
-            boats,
-            odds,
-            fixed,
-            race_scenario
-        )
 
-        boats.sort(
-            key=lambda x:x['score'],
-            reverse=True
-        )
-        return jsonify({
-            'ok':True,'venue':STADIUMS.get(jcd,jcd),'boats':boats,
-            'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
-            'scenario':scenario(boats,before),'bets':combos,
-            'history':hist,
-            'features':feature_snapshot(boats),
-            'weather':{'wind':before['wind'],'wave':before['wave'],'air':before['air'],'water':before['water']},
-            'odds_count':sum(v is not None for v in odds.values()),
-            'notice':f'å¬å¼åºèµ°è¡¨ã»ç´åæå ±ã»å¬å¼3é£åãªããºã«å ããç´è¿{days}æ¥ã»{hist["races"]}ã¬ã¼ã¹ã®å ´å¥çµæãè£æ­£ã«ä½¿ç¨ãã¦ãã¾ãã',
-            'source':source,'before_source':before_source,'odds_source':odds_source
-        })
-    except Exception as e:
-        return jsonify({'ok':False,'error':str(e),'source':source,'before_source':before_source,'odds_source':odds_source}),502
+def race_key(row):
+    return (normalize_date(row.get('date')), str(row.get('stadium', '')).zfill(2),
+            int(row.get('race', 0) or 0))
+
+from automation import start_automation, read_status
+
+
+@app.get('/api/automation')
+def api_automation():
+    response = jsonify(read_status())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+start_automation(sys.modules[__name__])
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=8000)
+
 

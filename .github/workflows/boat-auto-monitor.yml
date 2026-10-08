@@ -1,0 +1,38 @@
+name: BOAT AI automatic monitoring
+
+on:
+  schedule:
+    # Every five minutes, 07:02-22:57 in Japan. Avoid the busiest minute of each hour.
+    - cron: '2-57/5 22,23,0-13 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: boat-ai-automatic-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # A fork must never start or keep another owner's production service running.
+    if: github.repository == 'jupoyo1125/boat-ai-prediction'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Wake the service and check automatic monitoring
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --connect-timeout 15 --max-time 90 \
+            --retry 2 --retry-delay 5 --retry-all-errors \
+            https://boat-ai-prediction.onrender.com/health > /dev/null
+          curl --fail --silent --show-error --connect-timeout 15 --max-time 30 \
+            https://boat-ai-prediction.onrender.com/api/automation > /tmp/boat-auto-status.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path('/tmp/boat-auto-status.json').read_text())
+          if not status.get('ok') or not status.get('enabled'):
+              raise SystemExit('Automatic monitoring is unavailable; check the service logs.')
+          print('Automatic monitoring:', status.get('phase', 'starting'))
+          PY

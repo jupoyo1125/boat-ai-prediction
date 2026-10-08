@@ -119,8 +119,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <div class="app">
 <header><div class="brand">BOAT <span>AI</span> 予想</div><div class="badge">LEARNING PROTOTYPE</div></header>
 <section class="hero">
-<h1>レースを選んで、AI分析</h1>
-<div class="sub">予想を保存し、レース結果を取得すると学習データへ反映します。</div>
+<h1>展示後に自動予想、結果から学習</h1>
+<div class="sub">開催中の全場を自動で確認します。レースを選ぶと、保存済みの自動予想を表示します。</div>
 <div class="controls">
 <select id="date"></select>
 <select id="stadium"><option value="">開催場を読み込み中...</option></select>
@@ -149,8 +149,21 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 </div>
 </section>
 
+<section class="panel" style="margin-top:16px" aria-live="polite">
+  <h2>🤖 自動運用</h2>
+  <div class="metrics">
+    <div class="metric"><small>運転状態</small><b id="autoPhase">確認中</b></div>
+    <div class="metric"><small>本日の自動予想</small><b id="autoPredicted">-</b></div>
+    <div class="metric"><small>結果反映済み</small><b id="autoSettled">-</b></div>
+    <div class="metric"><small>結果待ち</small><b id="autoPending">-</b></div>
+  </div>
+  <div class="status" id="autoStatus">自動運転の状況を確認しています。</div>
+  <small id="autoLastChecked" style="color:var(--muted)"></small>
+  <p style="color:var(--muted);line-height:1.7;margin-bottom:0">開催中の全場が対象です。展示タイム・展示STの公表後に予想を保存し、結果確定後に照合・学習・実績更新を行います。締切に間に合わなかったレースは予想しません。</p>
+</section>
+
 <section class="panel" style="margin-top:16px">
-  <h2>🤖 一括運用</h2>
+  <h2>🤖 手動の一括操作</h2>
 
   <div class="metrics">
     <div class="metric">
@@ -299,6 +312,11 @@ AIが現在重視している特徴
 </section>
 <section class="panel" style="margin-top:16px">
 <h2>運用実績</h2>
+<label for="perfScope" style="color:var(--muted)">集計対象</label>
+<select id="perfScope" style="margin:8px 0 16px;max-width:360px">
+<option value="automatic">自動予想の累計</option>
+<option value="all">すべての保存記録（手動予想を含む）</option>
+</select>
 <div class="performance-categories">
 <section class="performance-category">
 <h3>🎯 ガチガチ</h3>
@@ -331,6 +349,10 @@ AIが現在重視している特徴
 
 <script>
 let lastPrediction=null;
+let manualAnalysisRunning=false;
+let savedPredictionSequence=0;
+let lastAutomaticSummary='';
+let selectedSavedKey='';
  
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
@@ -375,8 +397,8 @@ function renderAllRaces(venues){
 
         document.getElementById('settleBtn').disabled=true;
 
-        document.getElementById('reason').textContent=
-          `${v.venue} ${race}Rを選択しました。「AI予想」を押してください。`;
+        renderRaceButtons();
+        loadSelectedSavedPrediction();
 
         window.scrollTo({
           top:0,
@@ -451,6 +473,7 @@ async function loadSchedule(){
     stadium.disabled=false;
 
     document.getElementById('analyzeBtn').disabled=false;
+    await loadSelectedSavedPrediction();
 
   }catch(e){
 
@@ -459,8 +482,8 @@ async function loadSchedule(){
 
     document.getElementById('analyzeBtn').disabled=true;
 
-    document.getElementById('raceListStatus').textContent=
-      '開催情報を取得できません。';
+    const raceListStatus=document.getElementById('raceListStatus');
+    if(raceListStatus) raceListStatus.textContent='開催情報を取得できません。';
 
     console.error(e);
   }
@@ -524,9 +547,11 @@ async function loadPerformanceStatus(){
       note.textContent='区分別の運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
       return;
     }
+    const automatic=document.getElementById('perfScope').value==='automatic';
+    const categoryStats=automatic ? (x.automatic_category_stats||{}) : x.category_stats;
     const categories=[['gachi','Gachi'],['roman','Roman'],['oni','Oni']];
     for(const [category,id] of categories){
-      const s=x.category_stats[category] || {};
+      const s=categoryStats[category] || {};
       const roi=document.getElementById('perf'+id+'Roi');
       const hitRate=document.getElementById('perf'+id+'HitRate');
       roi.textContent=s.roi==null ? '-' : Number(s.roi).toFixed(1)+'%';
@@ -535,6 +560,7 @@ async function loadPerformanceStatus(){
       hitRate.title='結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R';
     }
     note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計します。';
+    note.textContent+=automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
     if(Number(x.legacy_records||0)>0){
       note.textContent+=' 区分情報のない過去の記録は含みません。';
     }
@@ -543,6 +569,85 @@ async function loadPerformanceStatus(){
     note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
   }
 }
+async function loadAutomationStatus(){
+  try{
+    const response=await fetch('/api/automation');
+    const status=await response.json();
+    if(!response.ok) throw new Error('自動運転の状況を取得できませんでした。');
+    const phaseNames={watching:'監視中',checking:'確認中',starting:'起動中',waiting:'開催待ち',retry:'再確認待ち',storage_error:'一時停止',disabled:'停止中'};
+    document.getElementById('autoPhase').textContent=phaseNames[status.phase]||'確認中';
+    for(const [key,id] of [['predicted','autoPredicted'],['settled','autoSettled'],['pending','autoPending']]){
+      document.getElementById(id).textContent=status[key]==null ? '-' : Number(status[key])+'R';
+    }
+    document.getElementById('autoStatus').textContent=status.message||'展示データの公表を待っています。';
+    const lastChecked=status.last_checked_at ? new Date(status.last_checked_at) : null;
+    document.getElementById('autoLastChecked').textContent=lastChecked ? '最終確認：'+lastChecked.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'}) : '';
+    if(status.enabled && lastChecked && Date.now()-lastChecked.getTime()>10*60*1000){
+      document.getElementById('autoPhase').textContent='確認が遅れています';
+      document.getElementById('autoStatus').textContent='自動処理の定期起動を確認してください。締切を過ぎたレースは実績に加えません。';
+    }
+    const signature=[status.date,status.phase,status.predicted,status.settled].join(':');
+    if(signature!==lastAutomaticSummary){
+      lastAutomaticSummary=signature;
+      await Promise.all([loadPerformanceStatus(),loadLearningStatus(),loadSelectedSavedPrediction()]);
+    }else if(!lastPrediction){
+      await loadSelectedSavedPrediction();
+    }
+  }catch(error){
+    document.getElementById('autoPhase').textContent='確認できません';
+    document.getElementById('autoStatus').textContent='通信状態を確認し、時間をおいて再読み込みしてください。';
+  }
+}
+
+async function loadSelectedSavedPrediction(){
+  if(manualAnalysisRunning) return;
+  const params=getParams();
+  if(!params.stadium) return;
+  const key=[params.date,params.stadium,params.race].join(':');
+  const sequence=++savedPredictionSequence;
+  if(key!==selectedSavedKey){
+    selectedSavedKey=key;
+    lastPrediction=null;
+    document.getElementById('settleBtn').disabled=true;
+    document.getElementById('analyzeBtn').disabled=false;
+    document.getElementById('fixed').disabled=false;
+    document.getElementById('boats').innerHTML='';
+    for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
+    for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
+    document.getElementById('reason').textContent='保存済みの自動予想を確認しています。';
+  }
+  try{
+    const response=await fetch('/api/saved_prediction?'+new URLSearchParams(params));
+    const data=await response.json();
+    if(sequence!==savedPredictionSequence || manualAnalysisRunning) return;
+    if(!response.ok || !data.ok){
+      if(!lastPrediction) document.getElementById('reason').textContent='展示後の自動予想が保存されると、ここに表示されます。';
+      return;
+    }
+    const row=data.record;
+    if(row.prediction_origin!=='automatic' || !row.prediction){
+      if(!lastPrediction){
+        lastPrediction={...params,combo:row.combo,bets:row.bets,features:row.features,predicted_first:row.predicted_first};
+        document.getElementById('settleBtn').disabled=Boolean(row.learned);
+        document.getElementById('reason').textContent=row.learned ? '保存済みの手動予想は結果反映済みです。' : '手動予想を保存済みです。結果取得・学習も実行できます。';
+      }
+      return;
+    }
+    renderAnalysis(row.prediction);
+    lastPrediction={...params,combo:row.combo,bets:row.bets,features:row.features,predicted_first:row.predicted_first,prediction_origin:'automatic'};
+    document.getElementById('fixed').value='none';
+    document.getElementById('fixed').disabled=true;
+    document.getElementById('analyzeBtn').disabled=true;
+    document.getElementById('settleBtn').disabled=Boolean(row.learned);
+    const savedAt=new Date(row.prediction_saved_at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo'});
+    document.getElementById('reason').textContent=row.learned
+      ? `自動予想 ${savedAt}保存｜結果 ${String(row.actual_combo).split('').join('-')}｜照合・学習・実績反映済み`
+      : `展示後の自動予想を${savedAt}に保存しました。結果確定後に自動で照合・学習します。`;
+  }catch(error){
+    if(sequence===savedPredictionSequence && !lastPrediction) document.getElementById('reason').textContent='保存済み予想を取得できませんでした。次回再確認します。';
+  }
+}
+
 function dateString(d){
  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
 }
@@ -584,8 +689,7 @@ function renderRaceButtons(){
       btn.classList.add('active');
 
       document.getElementById('settleBtn').disabled=true;
-      document.getElementById('reason').textContent=
-        i+'Rを選択しました。「AI予想」を押してください。';
+      loadSelectedSavedPrediction();
     };
 
     container.appendChild(btn);
@@ -600,6 +704,7 @@ function getParams(){
  };
 }
 async function analyze(){
+ manualAnalysisRunning=true;
  const p=getParams();
  const investment=100;
 
@@ -657,6 +762,12 @@ async function analyze(){
 
       saved=await saveR.json();
 
+      if(saveR.status===409 && saved.code==='prediction_frozen'){
+        manualAnalysisRunning=false;
+        await loadSelectedSavedPrediction();
+        return;
+      }
+
       if(saveR.ok && saved.ok){
         break;
       }
@@ -697,7 +808,7 @@ async function analyze(){
   document.getElementById('settleBtn').disabled=false;
   status.textContent=`AI予想を保存しました。${x.venue} ${p.race}R｜本命 ${x.main}号艇｜次に「結果取得・学習」を押せます。`;
  }catch(e){status.textContent='エラー: '+e.message; document.getElementById('settleBtn').disabled=true;}
- finally{btn.disabled=false;}
+ finally{manualAnalysisRunning=false;btn.disabled=lastPrediction?.prediction_origin==='automatic';}
 }
 function renderAnalysis(x){
 
@@ -1418,7 +1529,10 @@ async function batchAnalyze(allVenues=false){
 }
   document.getElementById('date').addEventListener('change',loadSchedule);
 
-  document.getElementById('race').addEventListener('change',renderRaceButtons);
+  document.getElementById('race').addEventListener('change',()=>{
+    renderRaceButtons();
+    loadSelectedSavedPrediction();
+  });
 
   document.getElementById('stadium').addEventListener('change',()=>{
     renderRaceButtons();
@@ -1426,14 +1540,21 @@ async function batchAnalyze(allVenues=false){
   document.getElementById('settleBtn').disabled=true;
   document.getElementById('reason').textContent=
     '開催場を変更しました。「AI予想」を押してください。';
+  loadSelectedSavedPrediction();
 });
+document.getElementById('perfScope').addEventListener('change',loadPerformanceStatus);
 setupDates();
 loadSchedule();
 renderRaceButtons();
 loadLearningStatus();
 loadPerformanceStatus();
+loadAutomationStatus();
+setInterval(()=>{
+  if(!document.hidden) loadAutomationStatus();
+},15000);
 
 </script>
 </body>
 </html>
+
 
