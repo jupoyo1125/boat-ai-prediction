@@ -31,6 +31,8 @@ def health():
 BASE = 'https://www.boatrace.jp/owpc/pc/race/'
 HEAD = {'User-Agent': 'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
 LEDGER = Path('performance_ledger.json')
+BET_UNIT = 100
+BET_CATEGORIES = ('gachi', 'roman', 'oni')
 FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st', 'history']
 def _database_url():
     return os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
@@ -283,6 +285,103 @@ def ledger_stats(rows):
         'max_losing_streak': max_loss,
         'by_month': by_month
     }
+
+def normalize_category_bets(bets, strict=True):
+    if not isinstance(bets, list):
+        if strict:
+            raise ValueError('買い目は配列で指定してください。')
+        return []
+
+    result = []
+    seen = set()
+    for bet in bets:
+        if not isinstance(bet, dict):
+            if strict:
+                raise ValueError('買い目の形式が不正です。')
+            continue
+        category = bet.get('category')
+        combo = str(bet.get('bet', '')).replace('-', '')
+        if (
+            category not in BET_CATEGORIES
+            or not re.fullmatch(r'[1-6]{3}', combo)
+            or len(set(combo)) != 3
+        ):
+            if strict:
+                raise ValueError('買い目の区分または3連単の形式が不正です。')
+            continue
+        key = (category, combo)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(bet, bet='-'.join(combo), investment=BET_UNIT))
+    return result
+
+
+def category_race_results(row):
+    if row.get('performance_version') != 2:
+        return {}
+    bets = normalize_category_bets(row.get('bets') or [], strict=False)
+    actual = str(row.get('actual_combo') or '').replace('-', '')
+    settled = bool(row.get('settled')) and bool(re.fullmatch(r'[1-6]{3}', actual))
+    official_payout = float(row.get('official_payout', 0) or 0)
+    results = {}
+    for category in BET_CATEGORIES:
+        combos = [
+            bet['bet'].replace('-', '')
+            for bet in bets if bet['category'] == category
+        ]
+        investment = len(combos) * BET_UNIT
+        hit = bool(settled and actual in combos)
+        payout = official_payout if hit else 0
+        results[category] = {
+            'bet_count': len(combos),
+            'investment': investment,
+            'payout': payout,
+            'profit': payout - investment,
+            'hit': hit,
+            'settled': bool(settled and combos),
+        }
+    return results
+
+
+def apply_category_accounting(row):
+    results = category_race_results(row)
+    row['category_results'] = results
+    row['investment'] = sum(result['investment'] for result in results.values())
+    row['payout'] = sum(result['payout'] for result in results.values())
+    row['profit'] = row['payout'] - row['investment']
+    row['hit'] = any(result['hit'] for result in results.values())
+
+
+def category_ledger_stats(rows):
+    # 再分析した同じレースを重複して集計しない。
+    latest = {}
+    for row in rows:
+        if row.get('performance_version') != 2:
+            continue
+        key = (
+            str(row.get('date', '')).replace('/', '').replace('-', ''),
+            str(row.get('stadium', '')).zfill(2),
+            int(row.get('race', 0)),
+        )
+        if key in latest:
+            del latest[key]
+        latest[key] = row
+
+    grouped = {category: [] for category in BET_CATEGORIES}
+    for row in latest.values():
+        for category, result in category_race_results(row).items():
+            if result['bet_count']:
+                grouped[category].append(dict(result, date=row.get('date', '')))
+
+    stats = {}
+    for category, records in grouped.items():
+        settled = [record for record in records if record['settled']]
+        stats[category] = ledger_stats(settled)
+        stats[category]['pending'] = len(records) - len(settled)
+        stats[category]['bet_count'] = sum(record['bet_count'] for record in settled)
+    return stats
+
 
 def get(url, timeout=5):
     started = time.monotonic()
@@ -911,22 +1010,11 @@ def build_bets(boats, odds, fixed, scenario_name=None):
         reverse=True
     )[:3]
 
-    # カテゴリ付与
-    for x in gachi:
-        x['category'] = 'gachi'
-
-    for x in roman:
-        x['category'] = 'roman'
-
-    for x in oni:
-        x['category'] = 'oni'
-
+    # 同じ買い目が別区分に含まれても、区分名を上書きしない。
     return (
-        gachi
-        +
-        roman
-        +
-        oni
+        [dict(x, category='gachi') for x in gachi]
+        + [dict(x, category='roman') for x in roman]
+        + [dict(x, category='oni') for x in oni]
     )
 def feature_snapshot(boats):
     return {
@@ -945,7 +1033,13 @@ def feature_snapshot(boats):
 @app.get('/api/performance')
 def api_performance():
     rows = load_ledger()
-    return jsonify({'ok': True, 'stats': ledger_stats(rows), 'records': rows[-100:]})
+    return jsonify({
+        'ok': True,
+        'stats': ledger_stats(rows),
+        'category_stats': category_ledger_stats(rows),
+        'legacy_records': sum(1 for row in rows if row.get('performance_version') != 2),
+        'records': rows[-100:],
+    })
 @app.get('/api/saved_prediction')
 def api_saved_prediction():
     date = str(request.args.get('date','')).replace('/','').replace('-','')
@@ -1005,6 +1099,12 @@ def api_performance_add():
             'bets': data.get('bets') or [],
             'note': str(data.get('note',''))[:300]
         }
+        if 'bets' in data:
+            if actual:
+                raise ValueError('区分別の結果は「結果取得・学習」で取得してください。')
+            row['bets'] = normalize_category_bets(data['bets'])
+            row['performance_version'] = 2
+            apply_category_accounting(row)
         rows = load_ledger()
 
         # 同じ日付・場・レースの重複保存を防止
@@ -1138,6 +1238,13 @@ def api_settle_prediction():
                 payout_match.group(1).replace(',', '')
             )
 
+        if official_payout <= 0:
+            return jsonify({
+                'ok': False,
+                'error': '指定レースの3連単払戻金を取得できませんでした。',
+                'source': result_source,
+            }), 404
+
         result = {
             'race': race,
             'combo': combo,
@@ -1169,31 +1276,20 @@ def api_settle_prediction():
         actual_combo = result['combo']
         row['actual_combo'] = actual_combo
 
-        # 的中判定
-        row['hit'] = bool(
-            row.get('combo') == actual_combo
-        )
-
-        investment = float(
-            row.get('investment', 0) or 0
-        )
-
-        # 払戻計算
-        if row['hit'] and investment > 0:
-            row['payout'] = round(
-                official_payout * (investment / 100.0),
-                2
-            )
-        else:
-            row['payout'] = 0
-
         row['official_payout'] = official_payout
-        row['profit'] = (
-            float(row.get('payout', 0) or 0)
-            - investment
-        )
-
         row['settled'] = True
+
+        if row.get('performance_version') == 2:
+            apply_category_accounting(row)
+        else:
+            # 区分情報のない既存記録は、保存時の金額・買い目で精算する。
+            row['hit'] = bool(row.get('combo') == actual_combo)
+            investment = float(row.get('investment', 0) or 0)
+            row['payout'] = (
+                round(official_payout * (investment / 100.0), 2)
+                if row['hit'] and investment > 0 else 0
+            )
+            row['profit'] = row['payout'] - investment
 
         # 学習処理
         actual_first = int(actual_combo[0])
@@ -1683,3 +1779,4 @@ def api_analyze():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=8000)
+

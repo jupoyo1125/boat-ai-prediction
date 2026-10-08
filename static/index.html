@@ -107,6 +107,12 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
   }
 }
  @media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:auto}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}}
+.performance-categories{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.performance-category{padding:14px;background:var(--panel2);border:1px solid var(--line);border-radius:13px}
+.performance-category h3{font-size:16px;margin:0 0 12px}
+.performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+.performance-category .metric{background:var(--panel)}
+@media(max-width:760px){.performance-categories{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -293,53 +299,31 @@ AIが現在重視している特徴
 </section>
 <section class="panel" style="margin-top:16px">
 <h2>運用実績</h2>
-
+<div class="performance-categories">
+<section class="performance-category">
+<h3>🎯 ガチガチ</h3>
 <div class="metrics">
-<div class="metric">
-<small>結果確定レース</small>
-<b id="perfSettled">-</b>
+<div class="metric"><small>回収率</small><b id="perfGachiRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfGachiHitRate">-</b></div>
 </div>
-
-<div class="metric">
-<small>3連単的中</small>
-<b id="perfWins">-</b>
+</section>
+<section class="performance-category">
+<h3>🚀 ロマン砲</h3>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="perfRomanRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfRomanHitRate">-</b></div>
 </div>
-
-<div class="metric">
-<small>3連単的中率</small>
-<b id="perfHitRate">-</b>
+</section>
+<section class="performance-category">
+<h3>👹 鬼しぼり</h3>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="perfOniRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfOniHitRate">-</b></div>
 </div>
-
-<div class="metric">
-<small>回収率（ROI）</small>
-<b id="perfRoi">-</b>
+</section>
 </div>
-</div>
-
-<div class="metrics" style="margin-top:9px">
-<div class="metric">
-<small>累計投資</small>
-<b id="perfInvestment">-</b>
-</div>
-
-<div class="metric">
-<small>累計払戻</small>
-<b id="perfPayout">-</b>
-</div>
-
-<div class="metric">
-<small>累計損益</small>
-<b id="perfProfit">-</b>
-</div>
-
-<div class="metric">
-<small>現在の連敗</small>
-<b id="perfLosing">-</b>
-</div>
-</div>
-
 <div class="status" id="perfNote">
-1レースの投資額を設定してAI予想を保存すると、運用実績に反映されます。
+各買い目100円。結果確定分の回収率・的中率を区分ごとに集計します。
 </div>
 </section>
 <div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
@@ -531,49 +515,32 @@ async function loadSchedule(){
  }
 }
 async function loadPerformanceStatus(){
+  const note=document.getElementById('perfNote');
   try{
     const r=await fetch('/api/performance');
     const x=await r.json();
-
-    if(!r.ok || !x.ok) return;
-
-    const s=x.stats||{};
-    const money=n=>Number(n||0).toLocaleString('ja-JP')+'円';
-
-    document.getElementById('perfSettled').textContent=
-      Number(s.settled||0)+'R';
-
-    document.getElementById('perfWins').textContent=
-      Number(s.wins||0)+'R';
-
-    document.getElementById('perfHitRate').textContent=
-      s.hit_rate==null
-        ? '-'
-        : Number(s.hit_rate).toFixed(1)+'%';
-
-    document.getElementById('perfRoi').textContent=
-      s.roi==null
-        ? '-'
-        : Number(s.roi).toFixed(1)+'%';
-
-    document.getElementById('perfInvestment').textContent=
-      money(s.investment);
-
-    document.getElementById('perfPayout').textContent=
-      money(s.payout);
-
-    const profit=Number(s.profit||0);
-
-    document.getElementById('perfProfit').textContent=
-      (profit>0?'+':'')+
-      profit.toLocaleString('ja-JP')+
-      '円';
-
-    document.getElementById('perfLosing').textContent=
-      Number(s.current_losing_streak||0)+'R';
-
+    if(!r.ok || !x.ok) throw new Error(x.error || '運用実績の取得に失敗しました');
+    if(!x.category_stats){
+      note.textContent='区分別の運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
+      return;
+    }
+    const categories=[['gachi','Gachi'],['roman','Roman'],['oni','Oni']];
+    for(const [category,id] of categories){
+      const s=x.category_stats[category] || {};
+      const roi=document.getElementById('perf'+id+'Roi');
+      const hitRate=document.getElementById('perf'+id+'HitRate');
+      roi.textContent=s.roi==null ? '-' : Number(s.roi).toFixed(1)+'%';
+      hitRate.textContent=s.hit_rate==null ? '-' : Number(s.hit_rate).toFixed(1)+'%';
+      roi.title='結果確定'+Number(s.settled||0)+'R｜購入'+Number(s.investment||0).toLocaleString('ja-JP')+'円｜払戻'+Number(s.payout||0).toLocaleString('ja-JP')+'円';
+      hitRate.title='結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R';
+    }
+    note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計します。';
+    if(Number(x.legacy_records||0)>0){
+      note.textContent+=' 区分情報のない過去の記録は含みません。';
+    }
   }catch(e){
     console.error('運用実績取得エラー',e);
+    note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
   }
 }
 function dateString(d){
@@ -634,12 +601,7 @@ function getParams(){
 }
 async function analyze(){
  const p=getParams();
- const investment=Number(document.getElementById('investment').value||0);
- 
- if(!Number.isFinite(investment) || investment<0 || investment%100!==0){
-  document.getElementById('reason').textContent='投資額は0以上・100円単位で入力してください。';
-  return;
- }
+ const investment=100;
 
  const status=document.getElementById('reason');
  const btn=document.getElementById('analyzeBtn'); btn.disabled=true;
@@ -649,8 +611,9 @@ async function analyze(){
   const r=await fetch('/api/analyze?'+q.toString()); const x=await r.json();
   if(!r.ok||!x.ok) throw new Error(x.error||'分析に失敗しました');
   renderAnalysis(x);
-  const firstBet=x.bets&&x.bets.length?String(x.bets[0].bet).replace(/-/g,''):'';
-  lastPrediction={...p, predicted_first:x.main, combo:firstBet, features:x.features||{}, investment:investment};
+  const bets=Array.isArray(x.bets)?x.bets:[];
+  const firstBet=bets.length?String(bets[0].bet).replace(/-/g,''):'';
+  lastPrediction={...p, predicted_first:x.main, combo:firstBet, bets:bets, features:x.features||{}, investment:investment};
   let saveR;
   let saved;
   let saveLastError;
@@ -681,6 +644,8 @@ async function analyze(){
             features:x.features || {},
 
             investment:investment,
+
+            bets:bets,
 
             payout:0,
 
@@ -1162,10 +1127,7 @@ async function batchAnalyze(allVenues=false){
               ? String(x.bets[0].bet).replace(/-/g,'')
               : '';
 
-          const investment=
-            Number(
-              document.getElementById('investment').value || 1000
-            );
+          const investment=100;
 
           const saveR=await fetch(
             '/api/performance',
@@ -1189,6 +1151,8 @@ async function batchAnalyze(allVenues=false){
                 features:x.features || {},
 
                 investment:investment,
+
+                bets:Array.isArray(x.bets)?x.bets:[],
 
                 payout:0,
 
@@ -1438,3 +1402,4 @@ loadPerformanceStatus();
 </script>
 </body>
 </html>
+
