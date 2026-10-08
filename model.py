@@ -172,7 +172,8 @@ def learn_from_features(
     predicted_features,
     actual_first,
     predicted_first,
-    actual_features=None
+    actual_features=None,
+    persist=True,
 ):
     """
     AI予想と実際の1着艇を比較して学習する。
@@ -274,14 +275,15 @@ def learn_from_features(
         4
     )
 
-    save(state)
+    finish_learning(state, persist)
 
     return state, bool(hit)
 
 def learn_from_record(
     state,
     predicted,
-    actual
+    actual,
+    persist=True,
 ):
     predicted = [
         int(x)
@@ -317,7 +319,16 @@ def learn_from_record(
         max(8.0, min(18.0, temperature)),
         4
     )
-    save(state)
+    finish_learning(state, persist)
 
     return state, bool(hit)
+
+
+def finish_learning(state, persist):
+    if persist:
+        save(state)
+    else:
+        # Match each single-race update, including normalization, without I/O.
+        _normalize_state(state)
+        state['updated_at'] = datetime.now().isoformat(timespec='seconds')
 

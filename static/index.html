@@ -1125,407 +1125,125 @@ function updateBatchProgress(completed,total,success,failed){
   document.getElementById('batchSuccess').textContent=success;
   document.getElementById('batchFailed').textContent=failed;
 }
+function batchSelection(allVenues){
+  const select=document.getElementById('stadium');
+  const selected=select.options[select.selectedIndex];
+  if(!selected || !selected.value) throw new Error('開催場を選択してください。');
+  const venues=allVenues ? [...select.options].filter(o=>o.value) : [selected];
+  const total=venues.length*12;
+  const label=allVenues ? `全${venues.length}場・${total}R` : `${selected.textContent}・12R`;
+  document.getElementById('batchTarget').textContent=label;
+  return {venues,total,label,date:document.getElementById('date').value};
+}
+async function fetchBatch(endpoint,date,stadium,races){
+  const response=await fetch(endpoint,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({date,stadium,races,fixed:'none',history_days:3})
+  });
+  const payload=await response.json();
+  if(!response.ok || !payload.ok) throw new Error(payload.error || '一括処理に失敗しました。');
+  if(!Array.isArray(payload.results) || payload.results.length!==races.length ||
+     new Set(payload.results.map(x=>x.race)).size!==races.length ||
+     payload.results.some(x=>!races.includes(x.race) || typeof x.ok!=='boolean')){
+    throw new Error('処理結果を確認できませんでした。再実行してください。');
+  }
+  return payload.results;
+}
 async function batchAnalyze(allVenues=false){
   if(batchRunning) return;
-
-  const btn=document.getElementById('batchAnalyzeBtn');
   const status=document.getElementById('batchStatus');
-
-  if(!btn || !status) return;
-
-  const date=document.getElementById('date').value;
-
-  const stadiumSelect=document.getElementById('stadium');
-
-  const selectedOption=
-    stadiumSelect.options[stadiumSelect.selectedIndex];
-
-  if(!selectedOption || !selectedOption.value){
-    status.textContent='開催場を選択してください。';
-    return;
-  }
-
-  const venueOptions=allVenues
-    ? [...stadiumSelect.options].filter(o=>o.value)
-    : [selectedOption];
-
-  const total=venueOptions.length * 12;
-  const label=allVenues
-    ? `全${venueOptions.length}場・${total}R`
-    : `${selectedOption.textContent}・12R`;
-
-  document.getElementById('batchTarget').textContent =
-    label;
-
-  document.getElementById('batchProgress').textContent =
-    `0 / ${total}`;
-  let completed=0;
-  let success=0;
-  let failed=0;
-  let failedRaces=[];
-
+  let selection;
+  try{selection=batchSelection(allVenues);}
+  catch(error){status.textContent=error.message;return;}
+  const {venues,total,label,date}=selection;
+  let completed=0,success=0,failed=0;
+  const failedRaces=[];
+  const failureReasons=new Set();
   setBatchBusy(true);
-
-  status.textContent=
-  `🤖 ${selectedOption.textContent} 12R一括AI分析を開始します。0 / 12レース`;
-
+  updateBatchProgress(0,total,0,0);
   try{
-
-    for(const option of venueOptions){
-
-      const stadium=option.value;
-      const venue=option.textContent;
-
-      for(let race=1;race<=12;race++){
-
-        completed++;
-
-        status.textContent=
-          `🤖 分析中：${venue} ${race}R　`+
-          `${completed} / ${total}レース`;
-        document.getElementById('batchProgress').textContent =
-          `${completed} / ${total}`;
-
-        document.getElementById('batchSuccess').textContent =
-          success;
-
-        document.getElementById('batchFailed').textContent =
-          failed;
-
-        try{
-
-          const q=new URLSearchParams({
-            date:date,
-            stadium:stadium,
-            race:String(race),
-            fixed:'none',
-            history_days:'30'
-          });
-
-          let r;
-          let x;
-          let lastError;
-
-          for(let attempt=1; attempt<=3; attempt++){
-
-            try{
-
-              r=await fetch(
-                 '/api/analyze?'+q.toString()
-              );
-
-              x=await r.json();
-
-              if(r.ok && x.ok){
-                 break;
-              }
-
-              lastError = new Error(
-                x.error || 'AI分析に失敗しました'
-              );
-
-            }catch(e){
-
-              lastError = e;
-
-            }
-
-            if(attempt < 3){
-
-              status.textContent =
-                `⚠️ ${venue} ${race}Rの取得を再試行中… `+
-                `${attempt}/2`;
-
-              await new Promise(
-                resolve=>setTimeout(
-                  resolve,
-                  attempt * 2000
-                )
-              );
-
-            }
-
+    for(const option of venues){
+      for(let first=1;first<=12;first+=3){
+        const races=Array.from({length:3},(_,i)=>first+i);
+        status.textContent=`🤖 分析中：${option.textContent} ${first}〜${first+2}R　${completed} / ${total}レース`;
+        let remaining=races;
+        const results=new Map();
+        // Retry failed analysis only; successful saves are never sent again.
+        for(let attempt=1;attempt<=3 && remaining.length;attempt++){
+          try{
+            const batch=await fetchBatch('/api/analyze_batch',date,option.value,remaining);
+            for(const result of batch) results.set(result.race,result);
+            remaining=batch.filter(x=>!x.ok && x.code==='analysis_failed').map(x=>x.race);
+          }catch(error){
+            for(const race of remaining) results.set(race,{race,ok:false,error:error.message});
           }
-
-          if(!r || !r.ok || !x || !x.ok){
-
-            throw lastError ||
-              new Error('AI分析に失敗しました');
-
+          if(remaining.length && attempt<3){
+            status.textContent=`⚠️ ${option.textContent} ${remaining.join('・')}Rの取得を再試行中… ${attempt}/2`;
+            await new Promise(resolve=>setTimeout(resolve,attempt*2000));
           }
-          const firstBet=
-            x.bets && x.bets.length
-              ? String(x.bets[0].bet).replace(/-/g,'')
-              : '';
-
-          const investment=100;
-
-          const saveR=await fetch(
-            '/api/performance',
-            {
-              method:'POST',
-              headers:{
-                'Content-Type':'application/json'
-              },
-              body:JSON.stringify({
-
-                date:date,
-
-                stadium:stadium,
-
-                race:race,
-
-                combo:firstBet,
-
-                predicted_first:x.main,
-
-                features:x.features || {},
-
-                investment:investment,
-
-                bets:Array.isArray(x.bets)?x.bets:[],
-
-                payout:0,
-
-                note:'一括AI分析'
-
-              })
-            }
-          );
-
-          const saved=await saveR.json();
-
-          if(!saveR.ok || !saved.ok){
-            throw new Error(
-              saved.error || '予想保存に失敗しました'
-            );
-          }
-
-          success++;
-          document.getElementById('batchSuccess').textContent =
-          success;
-
-        }catch(e){
-
-          failed++;
-          failedRaces.push(
-            `${venue} ${race}R`
-          );
-
-          document.getElementById('batchFailed').textContent =
-            failed;
-
-          console.error(
-            `${venue} ${race}R`,
-            e
-          );
         }
-
-        /*
-         * 連続アクセスを少し間隔を空ける
-         * 公式サイトへの負荷を抑えるため
-         */
-        await new Promise(
-          resolve=>setTimeout(resolve,1000)
-        );
-
-      }
-
-    }
-
-    status.textContent=
-      `${failed?'⚠️':'✅'} ${label}のAI分析終了\n`+
-      `成功：${success}レース\n`+
-      `失敗：${failed}レース\n`+
-      `合計：${completed}レース`+
-      (failedRaces.length
-        ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}`
-        : '');
-    loadPerformanceStatus();
-
-  }catch(e){
-
-    status.textContent=
-      '一括分析エラー：'+e.message;
-
-  }finally{
-
-    updateBatchProgress(completed,total,success,failed);
-    setBatchBusy(false);
-
-  }
-}
-  async function batchSettle(allVenues=false){
-  if(batchRunning) return;
-
-  const btn=document.getElementById('batchSettleBtn');
-  const status=document.getElementById('batchStatus');
-
-  if(!btn || !status) return;
-
-  const date=document.getElementById('date').value;
-
-  const stadiumSelect=document.getElementById('stadium');
-
-  const selectedOption=
-    stadiumSelect.options[stadiumSelect.selectedIndex];
-
-  if(!selectedOption || !selectedOption.value){
-    status.textContent='開催場を選択してください。';
-    return;
-  }
-
-  const venueOptions=allVenues
-  ? [...stadiumSelect.options].filter(o=>o.value)
-  : [selectedOption];
-
-  const total=venueOptions.length * 12;
-
-  const label=allVenues
-    ? `全${venueOptions.length}場・${total}R`
-    : `${selectedOption.textContent}・12R`;
-    document.getElementById('batchTarget').textContent =
-      label;
-
-    document.getElementById('batchProgress').textContent =
-      `0 / ${total}`;
-
-    document.getElementById('batchSuccess').textContent =
-      '0';
-
-    document.getElementById('batchFailed').textContent =
-      '0';
-    let completed=0;
-    let learned=0;
-    let pending=0;
-    let already=0;
-    let missing=0;
-    let failed=0;
-    let failedRaces=[];
-    const failureReasons=new Set();
-  setBatchBusy(true);
-
-  status.textContent=
-  `📊 ${label}の結果取得・学習を開始します。0 / ${total}レース`;
-
-  try{
-
-    for(const option of venueOptions){
-
-      const stadium=option.value;
-      const venue=option.textContent;
-
-      for(let race=1;race<=12;race++){
-
-        status.textContent=
-          `📊 結果確認：${venue} ${race}R `+
-          `${completed+1} / ${total}レース`;
-
-        try{
-
-          const r=await fetch(
-            '/api/settle_prediction',
-            {
-              method:'POST',
-              headers:{
-                'Content-Type':'application/json'
-              },
-              body:JSON.stringify({
-                date:date,
-                stadium:stadium,
-                race:race
-              })
-            }
-          );
-
-          const x=await r.json();
-
-          if(r.ok && x.ok && x.status==='already_settled'){
-
-            already++;
-
-          }else if(r.ok && x.ok){
-
-            learned++;
-
-          }else if(x.code==='prediction_missing'){
-
-            missing++;
-
-          }else if(x.code==='result_pending'){
-
-            pending++;
-
-          }else{
-
+        for(const race of races){
+          const result=results.get(race);
+          if(result && result.ok) success++;
+          else{
             failed++;
-
-            failedRaces.push(
-              `${venue} ${race}R`
-            );
-            failureReasons.add(x.error || '結果取得に失敗しました。');
-
-            console.error(
-              `${venue} ${race}R`,
-              x
-            );
-
+            failedRaces.push(`${option.textContent} ${race}R`);
+            failureReasons.add(result?.error || 'AI分析に失敗しました。');
           }
-
-        }catch(e){
-
-          failed++;
-
-          failedRaces.push(
-            `${venue} ${race}R`
-          );
-          failureReasons.add(e.message || '通信に失敗しました。');
-
-          console.error(
-            `${venue} ${race}R`,
-            e
-          );
-
-        }finally{
           completed++;
-          updateBatchProgress(completed,total,learned+already,failed);
         }
-
-        await new Promise(
-          resolve=>setTimeout(resolve,1000)
-        );
-
+        updateBatchProgress(completed,total,success,failed);
       }
-
     }
-
-    status.textContent=
-      `${failed?'⚠️':'✅'} ${label}の結果確認終了\n`+
-      `新たに学習：${learned}レース\n`+
-      `取得・学習済み：${already}レース\n`+
-      `結果待ち：${pending}レース\n`+
-      `予想なし：${missing}レース\n`+
-      `失敗：${failed}レース\n`+
-      `確認：${completed}レース`+
+    status.textContent=`${failed?'⚠️':'✅'} ${label}のAI分析終了\n成功：${success}レース\n失敗：${failed}レース\n合計：${completed}レース`+
+      (failureReasons.size ? `\n失敗理由：${[...failureReasons].join('／')}` : '')+
+      (failedRaces.length ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}` : '');
+    await loadPerformanceStatus();
+  }catch(error){status.textContent='一括分析エラー：'+error.message;}
+  finally{updateBatchProgress(completed,total,success,failed);setBatchBusy(false);}
+}
+async function batchSettle(allVenues=false){
+  if(batchRunning) return;
+  const status=document.getElementById('batchStatus');
+  let selection;
+  try{selection=batchSelection(allVenues);}
+  catch(error){status.textContent=error.message;return;}
+  const {venues,total,label,date}=selection;
+  let completed=0,learned=0,pending=0,already=0,missing=0,failed=0;
+  const failedRaces=[];
+  const failureReasons=new Set();
+  setBatchBusy(true);
+  updateBatchProgress(0,total,0,0);
+  try{
+    for(const option of venues){
+      for(let first=1;first<=12;first+=6){
+        const races=Array.from({length:6},(_,i)=>first+i);
+        status.textContent=`📊 結果取得・学習：${option.textContent} ${first}〜${first+5}R　${completed} / ${total}レース`;
+        let results;
+        try{results=await fetchBatch('/api/settle_batch',date,option.value,races);}
+        catch(error){results=races.map(race=>({race,ok:false,error:error.message}));}
+        for(const result of results){
+          if(result.ok && result.status==='already_settled') already++;
+          else if(result.ok && result.status==='settled') learned++;
+          else if(result.code==='prediction_missing') missing++;
+          else if(result.code==='result_pending') pending++;
+          else{
+            failed++;
+            failedRaces.push(`${option.textContent} ${result.race}R`);
+            failureReasons.add(result.error || '結果取得に失敗しました。');
+          }
+          completed++;
+        }
+        updateBatchProgress(completed,total,learned+already,failed);
+      }
+    }
+    status.textContent=`${failed?'⚠️':'✅'} ${label}の結果確認終了\n新たに学習：${learned}レース\n取得・学習済み：${already}レース\n結果待ち：${pending}レース\n予想なし：${missing}レース\n失敗：${failed}レース\n確認：${completed}レース`+
       (missing ? '\n同じ日付・開催場で先にAI予想を保存してください。' : '')+
       (failureReasons.size ? `\n失敗理由：${[...failureReasons].join('／')}` : '')+
-      (failedRaces.length
-        ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}`
-        : '');
+      (failedRaces.length ? `\n\n❌ 失敗したレース：\n${failedRaces.join('、')}` : '');
     await Promise.all([loadLearningStatus(),loadPerformanceStatus()]);
-
-  }catch(e){
-
-    status.textContent=
-      '一括学習エラー：'+e.message;
-
-  }finally{
-
-    updateBatchProgress(completed,total,learned+already,failed);
-    setBatchBusy(false);
-
-  }
-
+  }catch(error){status.textContent='一括学習エラー：'+error.message;}
+  finally{updateBatchProgress(completed,total,learned+already,failed);setBatchBusy(false);}
 }
   document.getElementById('date').addEventListener('change',loadSchedule);
 
