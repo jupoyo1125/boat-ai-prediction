@@ -277,5 +277,8 @@ def start_automation(core):
     with _start_lock:
         if _runner is not None:
             return
+        # Load the driver on the app's import thread before a worker can use it.
+        # A concurrent first import blocked the first production HTTP request.
+        import psycopg
         _runner = AutoRunner(core)
         threading.Thread(target=_runner.run_forever, daemon=True, name='boat-auto-runner').start()
