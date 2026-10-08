@@ -1,4 +1,5 @@
 import copy
+import builtins
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import os
@@ -195,6 +196,22 @@ class AutomaticFlowTests(unittest.TestCase):
 
 
 class DeadlineAndTransactionTests(unittest.TestCase):
+    def test_database_driver_initializes_before_background_worker_can_use_it(self):
+        events = []
+        original_import = builtins.__import__
+        def tracked_import(name, *args, **kwargs):
+            if name == 'psycopg':
+                events.append('driver_ready')
+            return original_import(name, *args, **kwargs)
+        def start_thread(*args, **kwargs):
+            self.assertIn('driver_ready', events)
+            events.append('worker_started')
+            return mock.Mock()
+        with mock.patch.object(automation,'configured',return_value=True),mock.patch.object(automation,'_runner',None),mock.patch.object(automation.threading,'Thread',side_effect=start_thread),mock.patch.dict(sys.modules,{'psycopg':mock.Mock()}),mock.patch('builtins.__import__',side_effect=tracked_import):
+            automation.start_automation(core)
+            automation.start_automation(core)
+        self.assertEqual(events, ['driver_ready', 'worker_started'])
+
     def test_automatic_processing_cannot_use_empty_ledger_after_database_error(self):
         @state_store.strict_state_reads
         def read():
