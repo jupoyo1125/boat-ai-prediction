@@ -1,7 +1,10 @@
 import json
 import os
 from datetime import datetime
-from state_store import state_connection, in_state_transaction, atomic_write_json, storage_required
+from state_store import (
+    state_connection, in_state_transaction, atomic_write_json, storage_required,
+    database_url, storage_paused, require_storage_writable,
+)
 
 PATH = os.path.join(os.path.dirname(__file__), "model_state.json")
 
@@ -23,7 +26,7 @@ DEFAULT = {
 
 
 def _database_url():
-    return os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+    return database_url()
 
 
 def _db_enabled():
@@ -35,7 +38,7 @@ def _db_connect():
 
 
 def _ensure_table():
-    if not _db_enabled():
+    if not _db_enabled() or storage_paused():
         return
 
     with _db_connect() as conn:
@@ -110,6 +113,7 @@ def load():
 
 
 def save(state):
+    require_storage_writable()
     state = _normalize_state(state)
     state["updated_at"] = datetime.now().isoformat(timespec="seconds")
 
