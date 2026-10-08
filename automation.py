@@ -9,7 +9,10 @@ import time
 import unicodedata
 
 from bs4 import BeautifulSoup
-from state_store import database_url, runner_lease, state_connection, strict_state_reads
+from state_store import (
+    database_url, runner_lease, state_connection, strict_state_reads,
+    storage_paused, require_storage_writable,
+)
 
 JST = timezone(timedelta(hours=9))
 POLL_SECONDS = 60
@@ -25,6 +28,8 @@ def now_jst():
 
 
 def configured():
+    if storage_paused():
+        return False
     requested = os.getenv('BOAT_AUTO_ENABLED', '1').lower() not in ('0', 'false', 'off')
     target = (os.getenv('RENDER_SERVICE_ID') == PRODUCTION_SERVICE
               or os.getenv('BOAT_AUTO_RUNNER') == '1')
@@ -46,6 +51,7 @@ def ensure_status_table():
 
 
 def write_status(status):
+    require_storage_writable()
     ensure_status_table()
     with state_connection() as connection:
         connection.execute('''INSERT INTO boat_automation_state (id, state, updated_at)
@@ -56,6 +62,10 @@ def write_status(status):
 
 
 def read_status():
+    if storage_paused():
+        return {'ok': True, 'enabled': False, 'phase': 'maintenance',
+                'message': '保存先の移行中です。自動予想・学習は完了後に再開します。',
+                'predicted': 0, 'settled': 0, 'pending': 0, 'last_checked_at': None}
     if not configured():
         return {'ok': True, 'enabled': False, 'phase': 'disabled',
                 'message': '自動運転の稼働条件を確認中です。', 'predicted': 0,
