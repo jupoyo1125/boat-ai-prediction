@@ -13,7 +13,32 @@ STATE_LOCK = 781042017
 RUNNER_LOCK = 781042018
 
 
+class StorageMaintenance(RuntimeError):
+    pass
+
+
+def storage_phase():
+    phase = os.getenv('BOAT_STORAGE_PHASE', 'render').strip().lower()
+    if phase not in ('render', 'prepare', 'copy', 'supabase'):
+        raise RuntimeError('BOAT_STORAGE_PHASE is invalid')
+    return phase
+
+
+def storage_paused():
+    return storage_phase() in ('prepare', 'copy')
+
+
+def require_storage_writable():
+    if storage_paused():
+        raise StorageMaintenance('保存先の移行中です。データの更新を一時停止しています。')
+
+
 def database_url():
+    if storage_phase() == 'supabase':
+        url = os.getenv('BOAT_SUPABASE_URL')
+        if not url:
+            raise RuntimeError('Supabase connection is not configured')
+        return url
     return os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
 
 
@@ -22,7 +47,7 @@ def in_state_transaction():
 
 
 def storage_required():
-    return bool(getattr(_local, 'strict_reads', False))
+    return bool(getattr(_local, 'strict_reads', False) or storage_phase() != 'render')
 
 
 def strict_state_reads(function):
@@ -64,6 +89,7 @@ def state_connection(url=None):
 
 @contextmanager
 def atomic_state():
+    require_storage_writable()
     if in_state_transaction():
         _local.depth += 1
         try:
