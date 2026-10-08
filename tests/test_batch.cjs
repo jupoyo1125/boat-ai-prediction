@@ -7,26 +7,36 @@ const script = html.split('<script>')[1].split('</script>')[0];
 new vm.Script(script);
 const definitions = script.slice(0, script.lastIndexOf("document.getElementById('date').addEventListener"));
 
-function context(outcomes, gate) {
+function context(outcomes, gate, analysisHandler) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m => [m[1], {textContent:'-', innerHTML:'', value:'', disabled:false}]));
   elements.get('date').value = '20261007';
   elements.get('stadium').value = '10';
   elements.get('stadium').options = [{value:'10', textContent:'三国'}];
   elements.get('stadium').selectedIndex = 0;
   let calls = 0;
+  const requests=[];
   const ctx = vm.createContext({
     document:{getElementById(id){return elements.get(id);}},
     URLSearchParams,
     console:{error(){}},
     setTimeout(resolve){resolve();},
     async fetch(url, options) {
-      if(url === '/api/settle_prediction') {
+      if(url === '/api/analyze_batch') {
         calls++;
-        const race=JSON.parse(options.body).race;
-        if(gate && race===1) await gate;
-        const outcome=outcomes[race-1];
-        if(outcome.throw) throw new Error(outcome.throw);
-        return {ok:outcome.status<400,status:outcome.status,json:async()=>outcome.body};
+        const races=JSON.parse(options.body).races;
+        requests.push({url,races});
+        const results=analysisHandler ? analysisHandler(races) : races.map(race=>({race,...outcomes[race-1].body}));
+        return {ok:true,status:200,json:async()=>({ok:true,results})};
+      }
+      if(url === '/api/settle_batch') {
+        calls++;
+        const races=JSON.parse(options.body).races;
+        requests.push({url,races});
+        if(gate && races.includes(1)) await gate;
+        const selected=races.map(race=>({...outcomes[race-1].body,race}));
+        const disconnected=races.map(race=>outcomes[race-1]).find(x=>x.throw);
+        if(disconnected) throw new Error(disconnected.throw);
+        return {ok:true,status:200,json:async()=>({ok:true,results:selected})};
       }
       if(url==='/api/performance') {
         return {ok:true,json:async()=>({ok:true,category_stats:{},legacy_records:0})};
@@ -36,7 +46,7 @@ function context(outcomes, gate) {
     },
   });
   vm.runInContext(definitions,ctx);
-  return {ctx,elements,calls:()=>calls};
+  return {ctx,elements,requests,calls:()=>calls};
 }
 const settled={status:200,body:{ok:true,status:'settled'}};
 const failure={status:502,body:{ok:false,code:'official_unavailable',error:'公式サイトとの通信に失敗しました。'}};
@@ -44,7 +54,7 @@ const failure={status:502,body:{ok:false,code:'official_unavailable',error:'公�
 async function run() {
   const allFailed=context(Array(12).fill(failure));
   await vm.runInContext('batchSettle(false)',allFailed.ctx);
-  assert.equal(allFailed.calls(),12);
+  assert.equal(allFailed.calls(),2);
   assert.equal(Number(allFailed.elements.get('batchFailed').textContent),12);
   assert.equal(Number(allFailed.elements.get('batchSuccess').textContent),0);
   assert.equal(allFailed.elements.get('batchProgress').textContent,'12 / 12');
@@ -84,10 +94,10 @@ async function run() {
 
   const network=context([...Array(11).fill(settled),{throw:'Network disconnected'}]);
   await vm.runInContext('batchSettle(false)',network.ctx);
-  assert.equal(Number(network.elements.get('batchSuccess').textContent),11);
-  assert.equal(Number(network.elements.get('batchFailed').textContent),1);
+  assert.equal(Number(network.elements.get('batchSuccess').textContent),6);
+  assert.equal(Number(network.elements.get('batchFailed').textContent),6);
   assert.ok(network.elements.get('batchStatus').textContent.includes('Network disconnected'));
-  console.log('PASS: Final network failure is counted and explained.');
+  console.log('PASS: Disconnected batch keeps earlier successes and marks its unconfirmed races as failures.');
 
   let release;
   const gate=new Promise(resolve=>release=resolve);
@@ -101,10 +111,31 @@ async function run() {
   assert.equal(busy.calls(),1);
   release();
   await first;
-  assert.equal(busy.calls(),12);
+  assert.equal(busy.calls(),2);
   for(const id of ['batchAnalyzeBtn','batchAnalyzeAllBtn','batchSettleBtn','batchSettleAllBtn']) {
     assert.equal(busy.elements.get(id).disabled,false);
   }
   console.log('PASS: Overlapping batches are blocked and buttons become usable after completion.');
+
+  const analyze=context(Array(12).fill({body:{ok:true,status:'saved'}}));
+  await vm.runInContext('batchAnalyze(false)',analyze.ctx);
+  assert.equal(analyze.calls(),4);
+  assert.equal(Number(analyze.elements.get('batchSuccess').textContent),12);
+  assert.equal(Number(analyze.elements.get('batchFailed').textContent),0);
+  assert.ok(analyze.requests.every(r=>r.races.length===3));
+  console.log('PASS: Analysis saves twelve races in four requests and counts only confirmed saves.');
+
+  let retried=false;
+  const retry=context([],null,races=>races.map(race=>{
+    if(race===1) return {race,ok:false,code:'prediction_frozen',error:'保存済みの自動予想'};
+    if(race===2 && !retried){retried=true;return {race,ok:false,code:'analysis_failed',error:'一時的な通信障害'};}
+    return {race,ok:true,status:'saved'};
+  }));
+  await vm.runInContext('batchAnalyze(false)',retry.ctx);
+  assert.deepEqual(retry.requests[1].races,[2]);
+  assert.equal(retry.calls(),5);
+  assert.equal(Number(retry.elements.get('batchSuccess').textContent),11);
+  assert.equal(Number(retry.elements.get('batchFailed').textContent),1);
+  console.log('PASS: Analysis retries only failed races; frozen and successful races are excluded.');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
