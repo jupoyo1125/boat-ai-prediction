@@ -1039,6 +1039,7 @@ def api_performance():
         'automatic_category_stats': category_ledger_stats([
             row for row in rows if row.get('prediction_origin') == 'automatic'
         ]),
+        'historical': historical_status(),
         'legacy_records': sum(1 for row in rows if row.get('performance_version') != 2),
         'records': rows[-100:],
     })
@@ -1845,6 +1846,9 @@ def api_automation():
 
 from batch_processing import register_batch_routes
 register_batch_routes(sys.modules[__name__])
+
+from historical import register_historical, public_status as historical_status
+register_historical(sys.modules[__name__])
 
 start_automation(sys.modules[__name__])
 

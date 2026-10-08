@@ -4,3 +4,5 @@ beautifulsoup4>=4.12
 
 gunicorn>=23.0
 psycopg[binary]>=3.2
+lhafile==0.3.1
+
