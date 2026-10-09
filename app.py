@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import parse_qs, unquote, urlsplit
 import json
 import os
 import re, requests, math, time
@@ -12,6 +13,8 @@ import sys
 import threading
 from bs4 import BeautifulSoup
 from odds_parser import parse_odds
+from official_http import OfficialRequestSlots
+from venue_schedule import VenueScheduleCache
 from model import (
     load as load_model,
     save as save_model,
@@ -63,7 +66,7 @@ BET_CATEGORIES = ('gachi', 'roman', 'oni')
 FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st', 'history']
 # Shared by manual batches and the automatic runner. Never fan out by venue.
 _official_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='official')
-_official_slots = threading.BoundedSemaphore(3)
+_official_slots = OfficialRequestSlots(3)
 _http_local = threading.local()
 LEDGER_UPSERT_SQL = '''
     INSERT INTO performance_ledger (id, record)
@@ -114,7 +117,7 @@ STADIUMS = {
 def normalize_date(value):
     return str(value or datetime.now().strftime('%Y%m%d')).replace('/', '').replace('-', '')
     
-def get_active_stadiums(date):
+def fetch_active_stadiums(date):
     """
     指定日の公式BOAT RACE開催場を取得する
     公式ページ上の競走場別リンク(jcd)から判定する
@@ -125,6 +128,8 @@ def get_active_stadiums(date):
     html = get(url, timeout=15)
 
     soup = BeautifulSoup(html, 'html.parser')
+    if not soup.title or '本日のレース' not in soup.title.get_text():
+        raise ValueError('公式の開催情報ページを確認できませんでした。')
 
     active_jcd = set()
 
@@ -133,15 +138,12 @@ def get_active_stadiums(date):
 
         href = link.get('href', '')
 
-        for jcd in STADIUMS.keys():
-
-            href_decoded = href.replace('%3D', '=')
-
-            if (
-                f'?jcd={jcd}' in href_decoded
-                or f'&jcd={jcd}' in href_decoded
-            ):
-                active_jcd.add(jcd)
+        parsed = urlsplit(unquote(href))
+        query = parse_qs(parsed.query)
+        jcd = query.get('jcd', [''])[0]
+        if (parsed.path.startswith('/owpc/pc/race/') and jcd in STADIUMS
+                and query.get('hd') == [date]):
+            active_jcd.add(jcd)
 
     active = []
 
@@ -154,6 +156,19 @@ def get_active_stadiums(date):
             })
 
     return active
+
+
+_venue_schedules = VenueScheduleCache(fetch_active_stadiums)
+
+
+def get_active_stadiums(date):
+    date = normalize_date(date)
+    if not re.fullmatch(r'\d{8}', date):
+        raise ValueError('日付を確認してください。')
+    datetime.strptime(date, '%Y%m%d')
+    return _venue_schedules.get(date)['venues']
+
+
 @app.get('/api/schedule')
 def api_schedule():
 
@@ -162,16 +177,28 @@ def api_schedule():
     )
 
     try:
+        if not re.fullmatch(r'\d{8}', date):
+            raise ValueError('日付を確認してください。')
+        datetime.strptime(date, '%Y%m%d')
+    except ValueError:
+        return jsonify({'ok': False, 'date': date, 'error': '日付を確認してください。'}), 400
 
-        venues = get_active_stadiums(date)
-
-        return jsonify({
+    try:
+        schedule = _venue_schedules.get(date)
+        response = jsonify({
             'ok': True,
             'date': date,
-            'venues': venues,
-            'count': len(venues)
+            **schedule,
+            'count': len(schedule['venues'])
         })
-
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except requests.Timeout:
+        response = jsonify({'ok': False, 'date': date, 'code': 'official_busy',
+                            'error': '開催場の取得が混み合っています。再試行してください。'})
+        response.status_code = 503
+        response.headers['Retry-After'] = '5'
+        return response
     except Exception as e:
 
         return jsonify({
@@ -427,7 +454,7 @@ def get(url, timeout=5):
     started = time.monotonic()
 
     try:
-        with _official_slots:
+        with _official_slots.slot(timeout=timeout):
             with official_session().get(url, headers=HEAD, timeout=timeout) as r:
                 r.raise_for_status()
                 r.encoding = r.apparent_encoding or 'utf-8'

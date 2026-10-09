@@ -220,7 +220,7 @@ class HistoricalRunner:
 
     def download_results(self, date):
         time.sleep(.25)
-        with self.core._official_slots:
+        with self.core._official_slots.slot(timeout=15):
             with self.core.official_session().get(archive_url(date), headers=self.core.HEAD,
                                                   timeout=15, stream=True) as response:
                 response.raise_for_status()
