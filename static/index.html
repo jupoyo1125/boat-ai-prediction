@@ -14,6 +14,8 @@
 .cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.boat{background:var(--panel2);border:1px solid #24415c;border-radius:13px;padding:12px}.boat .num{font-size:22px;font-weight:900}.boat .name{font-weight:700;margin:4px 0 8px}.score{font-size:22px;font-weight:900;color:var(--accent2)}.bar{height:5px;background:#1d344b;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1c8ee9,#73dcff)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.metric{padding:12px;background:var(--panel2);border-radius:12px}.metric small{display:block;color:var(--muted)}.metric b{display:block;margin-top:4px;font-size:18px}
 .status{margin-top:12px;padding:11px;border-radius:10px;background:#0b1c2d;color:#bfe8ff;font-size:13px}.scenario{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
+#scheduleNotice:empty,#scheduleRetry[hidden]{display:none}
+#scheduleRetry{margin-top:10px}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #1d334a;text-align:left;font-size:13px}th{color:var(--muted);font-weight:600}.tag{padding:5px 8px;border-radius:7px;font-weight:800;font-size:11px}.good{background:#123d2a;color:#73e4a0}.mid{background:#4a3a13;color:#ffd66d}.low{background:#431b24;color:#ff8290}
 .footer{color:#71869a;font-size:11px;text-align:center;padding:18px}
 .race-list{
@@ -144,9 +146,11 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 
 <select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
 <input id="investment" type="hidden" value="100">
-<button id="analyzeBtn" onclick="analyze()">AI予想</button>
+<button id="analyzeBtn" onclick="analyze()" disabled>AI予想</button>
 <button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
 </div>
+<div class="status" id="scheduleNotice" role="status" aria-live="polite"></div>
+<button id="scheduleRetry" class="secondary" onclick="loadSchedule()" hidden>開催場を再取得</button>
 </section>
 
 <section class="panel" style="margin-top:16px" aria-live="polite">
@@ -371,6 +375,10 @@ let manualAnalysisRunning=false;
 let savedPredictionSequence=0;
 let lastAutomaticSummary='';
 let selectedSavedKey='';
+let scheduleSequence=0;
+let scheduleRequestController=null;
+let scheduleLoadedDate='';
+let scheduleLoadedAt=0;
  
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
@@ -434,77 +442,124 @@ function renderAllRaces(venues){
 }
 
 async function loadSchedule(){
-
+  const sequence=++scheduleSequence;
+  if(scheduleRequestController) scheduleRequestController.abort();
   const date=document.getElementById('date').value;
   const stadium=document.getElementById('stadium');
-
+  const notice=document.getElementById('scheduleNotice');
+  const retry=document.getElementById('scheduleRetry');
+  const previousStadium=stadium.value;
+  const preserve=scheduleLoadedDate===date && Boolean(previousStadium)
+                 && Date.now()-scheduleLoadedAt<60*60*1000;
+  const previousAnalyzeDisabled=document.getElementById('analyzeBtn').disabled;
+  const previousSettleDisabled=document.getElementById('settleBtn').disabled;
+  const current=()=>sequence===scheduleSequence && document.getElementById('date').value===date;
+  const batchButtons=['batchAnalyzeBtn','batchAnalyzeAllBtn','batchSettleBtn','batchSettleAllBtn'];
+  const setBatchReady=ready=>batchButtons.forEach(id=>{
+    const button=document.getElementById(id);
+    if(button) button.disabled=!ready || batchRunning;
+  });
+  ++savedPredictionSequence;
   stadium.disabled=true;
-  stadium.innerHTML=
-    '<option value="">開催場を取得中...</option>';
-
-  try{
-
-    const r=await fetch(
-      '/api/schedule?date='+encodeURIComponent(date)
-    );
-
-    const x=await r.json();
-
-    if(!r.ok || !x.ok){
-      throw new Error(
-        x.error || '開催情報の取得に失敗しました'
-      );
+  document.getElementById('analyzeBtn').disabled=true;
+  document.getElementById('settleBtn').disabled=true;
+  setBatchReady(false);
+  retry.hidden=true;
+  notice.textContent='開催場を確認しています。起動直後は少し時間がかかります。';
+  if(!preserve){
+    stadium.innerHTML='<option value="">開催場を取得中...</option>';
+    scheduleLoadedDate='';
+    selectedSavedKey='';
+    lastPrediction=null;
+    document.getElementById('fixed').disabled=false;
+    document.getElementById('boats').innerHTML='';
+    for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
+    for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
+    document.getElementById('reason').textContent='開催場を選ぶと、保存済みの予想を確認します。';
+    const raceList=document.getElementById('raceList');
+    if(raceList) raceList.innerHTML='';
+    document.getElementById('batchTarget').textContent='-';
+    document.getElementById('batchProgress').textContent='0 / 0';
+  }
+  let failure;
+  for(let attempt=0;attempt<3;attempt++){
+    if(!current()) return;
+    const controller=new AbortController();
+    scheduleRequestController=controller;
+    const timeout=setTimeout(()=>controller.abort(),45000);
+    let x;
+    try{
+      const r=await fetch('/api/schedule?date='+encodeURIComponent(date),
+                          {signal:controller.signal,cache:'no-store'});
+      x=await r.json();
+      if(!current()) return;
+      if(!r.ok || !x.ok){
+        const error=new Error(x.error || '開催情報の取得に失敗しました。');
+        error.retryable=r.status!==400;
+        throw error;
+      }
+      if(x.date && x.date!==date) throw new Error('選択した日付の開催場を再確認しています。');
+    }catch(error){
+      if(!current()) return;
+      failure=error;
+      x=null;
+      if(error.retryable===false || attempt===2) break;
+      notice.textContent=`開催場の取得を再試行しています（${attempt+1}/2）。`;
+    }finally{
+      clearTimeout(timeout);
+      if(scheduleRequestController===controller) scheduleRequestController=null;
     }
-
+    if(!x || !x.ok){
+      await new Promise(resolve=>setTimeout(resolve,attempt===0 ? 2000 : 5000));
+      continue;
+    }
+    if(!current()) return;
     stadium.innerHTML='';
-
     if(!x.venues || !x.venues.length){
-
-      stadium.innerHTML=
-        '<option value="">この日は開催場がありません</option>';
-
-      document.getElementById('analyzeBtn').disabled=true;
-
+      stadium.innerHTML='<option value="">この日は開催場がありません</option>';
       renderAllRaces([]);
-
+      notice.textContent='選択した日付の開催場はありません。別の日付を選択してください。';
       return;
     }
-
     renderAllRaces(x.venues);
-
     document.getElementById('batchTarget').textContent =
       `${x.venues.length}場・${x.venues.length * 12}R`;
-
     document.getElementById('batchProgress').textContent =
       `0 / ${x.venues.length * 12}`;
     x.venues.forEach(v=>{
-
       const option=document.createElement('option');
-
       option.value=v.stadium;
       option.textContent=v.venue;
-
       stadium.appendChild(option);
-
     });
-
+    if(x.venues.some(v=>v.stadium===previousStadium)) stadium.value=previousStadium;
+    scheduleLoadedDate=date;
+    scheduleLoadedAt=Date.now()-Number(x.age_seconds||0)*1000;
     stadium.disabled=false;
-
     document.getElementById('analyzeBtn').disabled=false;
+    setBatchReady(true);
+    notice.textContent=x.stale
+      ? '通信が混み合っているため、この日付の取得済み開催場を表示しています。' : '';
+    retry.hidden=!x.stale;
     await loadSelectedSavedPrediction();
-
-  }catch(e){
-
-    stadium.innerHTML=
-      '<option value="">開催情報を取得できません</option>';
-
-    document.getElementById('analyzeBtn').disabled=true;
-
+    return;
+  }
+  if(!current()) return;
+  retry.hidden=false;
+  if(preserve){
+    stadium.disabled=false;
+    document.getElementById('analyzeBtn').disabled=previousAnalyzeDisabled;
+    document.getElementById('settleBtn').disabled=previousSettleDisabled;
+    setBatchReady(true);
+    notice.textContent='開催場の更新に失敗しました。この日付の取得済み開催場を表示しています。「開催場を再取得」で再確認できます。';
+    await loadSelectedSavedPrediction();
+  }else{
+    stadium.innerHTML='<option value="">開催情報を取得できません</option>';
+    notice.textContent='開催場を取得できませんでした。「開催場を再取得」を押してください。';
     const raceListStatus=document.getElementById('raceListStatus');
     if(raceListStatus) raceListStatus.textContent='開催情報を取得できません。';
-
-    console.error(e);
   }
+  console.error(failure);
 }
  async function loadLearningStatus(){
  try{
@@ -684,7 +739,7 @@ async function loadAutomationStatus(){
 }
 
 async function loadSelectedSavedPrediction(){
-  if(manualAnalysisRunning) return;
+  if(manualAnalysisRunning || document.getElementById('stadium').disabled) return;
   const params=getParams();
   if(!params.stadium) return;
   const key=[params.date,params.stadium,params.race].join(':');

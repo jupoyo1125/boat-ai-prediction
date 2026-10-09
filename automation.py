@@ -122,7 +122,6 @@ class AutoRunner:
         self.clock = clock
         self.persist = persist
         self.schedule_cache = {}
-        self.venue_cache = None
         self.status_lock = threading.Lock()
         self.events = {}
         self.day = None
@@ -234,9 +233,7 @@ class AutoRunner:
                           'last_checked_at': now.isoformat(timespec='seconds')})
             return
         rows = self.core.load_ledger()
-        if self.venue_cache is None or self.venue_cache[0] != date or time.monotonic() - self.venue_cache[1] > 900:
-            self.venue_cache = date, time.monotonic(), self.core.get_active_stadiums(date)
-        venues = self.venue_cache[2]
+        venues = self.core.get_active_stadiums(date)
         self.persist({'date': date, 'phase': 'checking', 'message': '展示データと確定結果を確認しています。',
                       'predicted': sum(row.get('prediction_origin') == 'automatic' and self.core.race_key(row)[0] == date for row in rows),
                       'settled': sum(row.get('prediction_origin') == 'automatic' and self.core.race_key(row)[0] == date and bool(row.get('learned')) for row in rows),
