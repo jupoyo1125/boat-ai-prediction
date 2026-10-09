@@ -311,7 +311,7 @@ AIが現在重視している特徴
 </div>
 </section>
 <section class="panel" style="margin-top:16px">
-<h2>過去10年の検証・学習</h2>
+<h2>過去1年の検証・学習</h2>
 <div class="metrics">
 <div class="metric"><small>処理した日数</small><b id="historyDays">-</b></div>
 <div class="metric"><small>学習したレース</small><b id="historySamples">-</b></div>
@@ -320,7 +320,7 @@ AIが現在重視している特徴
 </div>
 <div class="bar"><i id="historyProgress" style="width:0%"></i></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-<button id="historyStart" onclick="controlHistorical('start')">過去10年の検証を開始</button>
+<button id="historyStart" onclick="controlHistorical('start')">過去1年の検証を開始</button>
 <button id="historyPause" class="secondary" onclick="controlHistorical('pause')" disabled>一時停止</button>
 </div>
 <button id="historyApply" class="secondary" style="margin-top:10px" onclick="controlHistorical('apply_model')" disabled>完了した学習モデルを本番に適用</button>
@@ -332,7 +332,7 @@ AIが現在重視している特徴
 <label for="perfScope" style="color:var(--muted)">集計対象</label>
 <select id="perfScope" style="margin:8px 0 16px;max-width:360px">
 <option value="automatic">自動予想の累計</option>
-<option value="historical">過去10年の検証（締切時オッズ）</option>
+<option value="historical">過去1年の検証（締切時オッズ）</option>
 <option value="all">すべての保存記録（手動予想を含む）</option>
 </select>
 <div class="performance-categories">
@@ -602,7 +602,7 @@ function renderHistorical(status){
   document.getElementById('historyExcluded').textContent=count(Number(status.missing_odds||0)+Number(status.missing_features||0)+Number(status.excluded_results||0))+'R';
   document.getElementById('historyProgress').style.width=Math.max(0,Math.min(100,Number(status.progress||0)))+'%';
   const start=document.getElementById('historyStart');
-  start.textContent=completed ? '検証完了' : active ? '処理を継続中' : status.exists ? '保存位置から再開' : '過去10年の検証を開始';
+  start.textContent=completed ? '検証完了' : active ? '処理を継続中' : status.exists ? '保存位置から再開' : '過去1年の検証を開始';
   start.disabled=completed||active;
   document.getElementById('historyPause').disabled=!active;
   const apply=document.getElementById('historyApply');

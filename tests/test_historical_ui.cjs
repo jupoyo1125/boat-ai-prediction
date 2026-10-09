@@ -6,8 +6,8 @@ const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8
 const script = html.split('<script>')[1].split('</script>')[0];
 new vm.Script(script);
 const definitions = script.slice(0, script.lastIndexOf("document.getElementById('date').addEventListener"));
-const historical = {ok:true,exists:true,start_date:'20161009',end_date:'20261008',cursor:'20161009',
-  phase:'running',enabled:true,days_done:1,total_days:3652,progress:.03,samples:173,evaluated:0,
+const historical = {ok:true,exists:true,start_date:'20251009',end_date:'20261008',cursor:'20251009',
+  phase:'running',enabled:true,days_done:1,total_days:365,progress:.27,samples:173,evaluated:0,
   missing_odds:173,missing_features:0,excluded_results:7,category_stats:{gachi:{roi:null,hit_rate:null}}};
 const response = (data,status=200)=>({ok:status<400,status,json:async()=>data});
 function context(handler){
@@ -34,6 +34,10 @@ async function run(){
   const live=context();await live.run('loadPerformanceStatus()');
   assert.equal(live.elements.get('perfGachiRoi').textContent,'99.0%');
   assert.equal(live.elements.get('historySamples').textContent,'173R');
+  assert.equal(live.elements.get('historyDays').textContent,'1 / 365日');
+  assert.match(live.elements.get('historyStatus').textContent,/2025\/10\/09 ～ 2026\/10\/08/);
+  assert.match(html,/<h2>過去1年の検証・学習<\/h2>/);
+  assert.doesNotMatch(html,/過去10年/);
   live.elements.get('perfScope').value='historical';await live.run('loadPerformanceStatus()');
   assert.equal(live.elements.get('perfGachiRoi').textContent,'-');
   assert.equal(live.elements.get('perfGachiHitRate').textContent,'-');
