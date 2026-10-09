@@ -249,14 +249,25 @@ class HistoricalTests(unittest.TestCase):
             historical.control(core, 'apply_model')
             save.assert_not_called()
 
-    def test_control_routes_reject_invalid_actions_and_ten_year_window_ends_yesterday(self):
+    def test_control_routes_reject_invalid_actions_and_one_year_window_ends_yesterday(self):
         client = core.app.test_client()
         self.assertEqual(client.post('/api/historical', json={'action': 'erase'}).status_code, 400)
         self.assertEqual(client.post('/api/historical', data='x').status_code, 400)
         result = client.post('/api/historical', json={'action': 'start'}).json
         self.assertTrue(result['exists'])
         clock = lambda: datetime(2026, 10, 9, tzinfo=historical.JST)
-        self.assertEqual(historical.date_window(clock), ('20161009', '20261008'))
+        self.assertEqual(historical.date_window(clock), ('20251009', '20261008'))
+        status = historical.public_status(historical.new_job(*historical.date_window(clock)))
+        self.assertEqual(status['total_days'], 365)
+
+    def test_one_year_window_preserves_valid_boundaries_across_leap_days(self):
+        for today, expected in [
+                (datetime(2024, 3, 1, tzinfo=historical.JST), ('20230301', '20240229')),
+                (datetime(2025, 3, 1, tzinfo=historical.JST), ('20240229', '20250228'))]:
+            with self.subTest(today=today):
+                self.assertEqual(historical.date_window(lambda: today), expected)
+                status = historical.public_status(historical.new_job(*expected))
+                self.assertEqual(status['total_days'], 366)
 
     def test_real_forecast_path_uses_pre_race_features_and_ignores_current_result(self):
         entry = '<title>出走表</title><table>' + ''.join(

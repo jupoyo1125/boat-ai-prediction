@@ -58,9 +58,9 @@ def now_jst():
 def date_window(clock=now_jst):
     end = clock().date() - timedelta(days=1)
     try:
-        anniversary = end.replace(year=end.year - 10)
+        anniversary = end.replace(year=end.year - 1)
     except ValueError:
-        anniversary = end.replace(year=end.year - 10, day=28)
+        anniversary = end.replace(year=end.year - 1, day=28)
     return (anniversary + timedelta(days=1)).strftime('%Y%m%d'), end.strftime('%Y%m%d')
 
 
@@ -397,7 +397,7 @@ def control(core, action):
         if action == 'start' and state is None:
             state = new_job(*date_window())
         elif state is None:
-            raise ValueError('先に過去10年の検証を開始してください。')
+            raise ValueError('先に過去1年の検証を開始してください。')
         elif action in ('start', 'resume'):
             if state['phase'] == 'completed':
                 return public_status(state)
@@ -407,7 +407,7 @@ def control(core, action):
                 state.update(enabled=False, phase='paused')
         elif action == 'apply_model':
             if state['phase'] != 'completed' or state['model']['samples'] < 1000:
-                raise ValueError('10年分の処理完了後、学習対象が1,000レース以上ある場合に適用できます。')
+                raise ValueError('1年分の処理完了後、学習対象が1,000レース以上ある場合に適用できます。')
             if not state.get('model_applied_at'):
                 live = core.load_model()
                 state['model_backup'] = copy.deepcopy(live)
