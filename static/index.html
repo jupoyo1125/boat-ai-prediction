@@ -115,6 +115,14 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 .performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 .performance-category .metric{background:var(--panel)}
 @media(max-width:760px){.performance-categories{grid-template-columns:1fr}}
+.maintenance{margin-top:16px}
+.maintenance summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;font-weight:800}
+.maintenance summary::-webkit-details-marker{display:none}
+.maintenance summary small{color:var(--muted);font-size:12px;font-weight:400}
+.maintenance summary::after{content:"＋";margin-left:auto;color:var(--accent2)}
+.maintenance[open] summary::after{content:"−"}
+.maintenance summary:focus-visible{outline:2px solid var(--accent2);outline-offset:6px;border-radius:4px}
+.maintenance-note{color:var(--muted);font-size:13px;line-height:1.7;margin:16px 0}
 </style>
 </head>
 <body>
@@ -166,63 +174,6 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
   <p style="color:var(--muted);line-height:1.7;margin-bottom:0">開催中の全場が対象です。展示タイム・展示STの公表後に予想を保存し、結果確定後に照合・学習・実績更新を行います。締切に間に合わなかったレースは予想しません。</p>
 </section>
 
-<section class="panel" style="margin-top:16px">
-  <h2>🤖 手動の一括操作</h2>
-
-  <div class="metrics">
-    <div class="metric">
-      <small>対象</small>
-      <b id="batchTarget">-</b>
-    </div>
-
-    <div class="metric">
-      <small>進捗</small>
-      <b id="batchProgress">0 / 0</b>
-    </div>
-
-    <div class="metric">
-      <small>成功</small>
-      <b id="batchSuccess">0</b>
-    </div>
-
-    <div class="metric">
-      <small>失敗</small>
-      <b id="batchFailed">0</b>
-    </div>
-  </div>
-
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-
-  <button id="batchAnalyzeBtn" onclick="batchAnalyze(false)">
-    🤖 選択場12RをAI分析
-  </button>
-
-  <button id="batchAnalyzeAllBtn" onclick="batchAnalyze(true)">
-    🤖 全場AI分析
-  </button>
-
-  <button
-    id="batchSettleBtn"
-    class="secondary"
-    onclick="batchSettle(false)"
-  >
-    📊 選択場12Rを結果取得・学習
-  </button>
-
-  <button
-    id="batchSettleAllBtn"
-    class="secondary"
-    onclick="batchSettle(true)"
-  >
-    📊 全場結果取得・学習
-  </button>
-
-</div>
-
-  <div class="status" id="batchStatus">
-    一括処理はまだ実行していません。
-  </div>
-</section>
 <div class="grid">
 <section class="panel"><h2>6艇スコア</h2><div class="cards" id="boats"></div></section>
 <section class="panel"><h2>レース判断</h2><div class="metrics">
@@ -366,6 +317,64 @@ AIが現在重視している特徴
 各買い目100円。結果確定分の回収率・的中率を区分ごとに集計します。
 </div>
 </section>
+<details class="panel maintenance" id="maintenance">
+  <summary><span>メンテナンス</span><small>手動の一括操作</small></summary>
+  <p class="maintenance-note">通常は自動運用にお任せください。必要なときは、画面上部で日付・開催場を選び、手動でまとめて再確認できます。</p>
+
+  <div class="metrics">
+    <div class="metric">
+      <small>対象</small>
+      <b id="batchTarget">-</b>
+    </div>
+
+    <div class="metric">
+      <small>進捗</small>
+      <b id="batchProgress">0 / 0</b>
+    </div>
+
+    <div class="metric">
+      <small>成功</small>
+      <b id="batchSuccess">0</b>
+    </div>
+
+    <div class="metric">
+      <small>失敗</small>
+      <b id="batchFailed">0</b>
+    </div>
+  </div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+
+  <button id="batchAnalyzeBtn" onclick="batchAnalyze(false)">
+    🤖 選択場12RをAI分析
+  </button>
+
+  <button id="batchAnalyzeAllBtn" onclick="batchAnalyze(true)">
+    🤖 全場AI分析
+  </button>
+
+  <button
+    id="batchSettleBtn"
+    class="secondary"
+    onclick="batchSettle(false)"
+  >
+    📊 選択場12Rを結果取得・学習
+  </button>
+
+  <button
+    id="batchSettleAllBtn"
+    class="secondary"
+    onclick="batchSettle(true)"
+  >
+    📊 全場結果取得・学習
+  </button>
+
+</div>
+
+  <div class="status" id="batchStatus">
+    一括処理はまだ実行していません。
+  </div>
+</details>
 <div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
 </div>
 
