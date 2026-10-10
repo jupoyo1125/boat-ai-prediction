@@ -37,7 +37,7 @@ function context(handler){
     window:{scrollTo(){}},
     setTimeout(callback,delay){
       const id=++nextTimer;
-      if(delay===45000) timers.set(id,callback);
+      if(delay>=15000) timers.set(id,callback);
       else Promise.resolve().then(callback);
       return id;
     },clearTimeout(id){timers.delete(id);},

@@ -3,7 +3,7 @@ from itertools import permutations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from urllib.parse import parse_qs, unquote, urlsplit
 import json
 import os
@@ -67,6 +67,8 @@ FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st',
 # Shared by manual batches and the automatic runner. Never fan out by venue.
 _official_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='official')
 _official_slots = OfficialRequestSlots(3)
+OFFICIAL_PAGE_WAIT_SECONDS = 30
+ANALYSIS_WAIT_SECONDS = 45
 _http_local = threading.local()
 LEDGER_UPSERT_SQL = '''
     INSERT INTO performance_ledger (id, record)
@@ -469,6 +471,28 @@ def get(url, timeout=5):
         )
         raise
 
+
+def submit_official_page(url, deadline):
+    def fetch():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise requests.Timeout('公式データの取得に時間がかかっています。再試行してください。')
+        return get(url, timeout=min(15, remaining))
+    return _official_pool.submit(fetch)
+
+
+def await_official_page(page, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        page.cancel()
+        raise requests.Timeout('公式データの取得に時間がかかっています。再試行してください。')
+    try:
+        return page.result(timeout=remaining)
+    except FutureTimeout as error:
+        page.cancel()
+        raise requests.Timeout('公式データの取得に時間がかかっています。再試行してください。') from error
+
+
 def num(s):
     m = re.search(r'-?\d+(?:\.\d+)?', str(s).replace(',', ''))
     return float(m.group()) if m else None
@@ -633,12 +657,13 @@ def historical_stats(jcd, days=30, end_date=None):
     dates = 0
 
     dates_to_fetch = [start + timedelta(days=offset) for offset in range(days)]
-    pages = [_official_pool.submit(get,
-                f'{BASE}resultlist?hd={day.strftime("%Y%m%d")}&jcd={jcd}', timeout=15)
+    deadline = time.monotonic() + OFFICIAL_PAGE_WAIT_SECONDS
+    pages = [submit_official_page(
+                f'{BASE}resultlist?hd={day.strftime("%Y%m%d")}&jcd={jcd}', deadline)
              for day in dates_to_fetch]
-    for page in pages:
-        try:
-            rs = parse_resultlist(page.result())
+    try:
+        for page in pages:
+            rs = parse_resultlist(await_official_page(page, deadline))
             if rs:
                 dates += 1
                 for r in rs:
@@ -647,8 +672,10 @@ def historical_stats(jcd, days=30, end_date=None):
                     combo[r['combo']] = combo.get(r['combo'], 0) + 1
                     if r['payout'] is not None:
                         payouts.append(r['payout'])
-        except Exception:
-            pass
+    finally:
+        # Do not cache incomplete history or leave abandoned work in the queue.
+        for page in pages:
+            page.cancel()
 
     rates = {
         str(i):
@@ -1757,6 +1784,13 @@ def api_analyze():
         prediction = predict_race(date, jcd, race, request.args.get('fixed', 'none'),
                                   int(request.args.get('history_days', '30')))
         return jsonify(prediction)
+    except requests.Timeout:
+        response = jsonify({'ok': False, 'code': 'analysis_timeout',
+                            'error': '公式データの取得に時間がかかっています。少し待って「AI予想」を押してください。'})
+        response.status_code = 503
+        response.headers['Retry-After'] = '5'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     except Exception as error:
         return jsonify({'ok': False, 'error': str(error)}), 502
 
@@ -1778,7 +1812,8 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
     ).strftime('%Y%m%d')
 
     urls = [source, odds_source] + ([before_source] if before is None else [])
-    pages = {url: _official_pool.submit(get, url, timeout=15) for url in urls}
+    deadline = time.monotonic() + ANALYSIS_WAIT_SECONDS
+    pages = {url: submit_official_page(url, deadline) for url in urls}
     # Fetch independent inputs concurrently; retain the same scoring logic.
     try:
         if hist is None:
@@ -1786,12 +1821,12 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         if model is None:
             model = load_model()
         if before is None:
-            before = parse_before(pages[before_source].result())
-        entries = boats_from(pages[source].result())
+            before = parse_before(await_official_page(pages[before_source], deadline))
+        entries = boats_from(await_official_page(pages[source], deadline))
         if set(entries) != set(range(1, 7)):
             raise ValueError('6艇の出走表がそろっていません。次回再確認してください。')
         boats = analyze(entries, fixed, before, hist, model=model)
-        odds = parse_odds(pages[odds_source].result())
+        odds = parse_odds(await_official_page(pages[odds_source], deadline))
     finally:
         for page in pages.values():
             page.cancel()

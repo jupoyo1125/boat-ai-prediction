@@ -381,13 +381,65 @@ AIが現在重視している特徴
 <script>
 let lastPrediction=null;
 let manualAnalysisRunning=false;
+let manualAnalysisSequence=0;
+let manualAnalysisController=null;
+let manualAnalysisKey='';
 let savedPredictionSequence=0;
+let savedPredictionRequest=null;
 let lastAutomaticSummary='';
 let selectedSavedKey='';
 let scheduleSequence=0;
 let scheduleRequestController=null;
 let scheduleLoadedDate='';
 let scheduleLoadedAt=0;
+
+function predictionKey(params=getParams()){
+  return [params.date,params.stadium,params.race].join(':');
+}
+
+function cancelManualAnalysis(){
+  if(!manualAnalysisRunning) return;
+  ++manualAnalysisSequence;
+  manualAnalysisRunning=false;
+  if(manualAnalysisController) manualAnalysisController.abort();
+  manualAnalysisController=null;
+}
+
+async function fetchPredictionJson(url,options={},timeoutMs=15000,controller=new AbortController()){
+  let timer;
+  let onAbort;
+  const deadline=new Promise((resolve,reject)=>{
+    onAbort=()=>{
+      const error=new Error('通信を取り消しました。');
+      error.name='AbortError';
+      reject(error);
+    };
+    controller.signal.addEventListener('abort',onAbort,{once:true});
+    if(controller.signal.aborted) onAbort();
+    timer=setTimeout(()=>{
+      const error=new Error('通信に時間がかかっています。少し待って「AI予想」をもう一度押してください。');
+      error.name='TimeoutError';
+      reject(error);
+      controller.abort();
+    },timeoutMs);
+  });
+  try{
+    return await Promise.race([
+      (async()=>{
+        const response=await fetch(url,{...options,signal:controller.signal});
+        const data=await response.json();
+        return {response,data};
+      })(),
+      deadline
+    ]);
+  }catch(error){
+    if(error instanceof SyntaxError) throw new Error('サーバーから結果を受け取れませんでした。少し待って再試行してください。');
+    throw error;
+  }finally{
+    clearTimeout(timer);
+    controller.signal.removeEventListener('abort',onAbort);
+  }
+}
  
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
@@ -451,6 +503,9 @@ function renderAllRaces(venues){
 }
 
 async function loadSchedule(){
+  cancelManualAnalysis();
+  if(savedPredictionRequest) savedPredictionRequest.controller.abort();
+  savedPredictionRequest=null;
   const sequence=++scheduleSequence;
   if(scheduleRequestController) scheduleRequestController.abort();
   const date=document.getElementById('date').value;
@@ -748,10 +803,18 @@ async function loadAutomationStatus(){
 }
 
 async function loadSelectedSavedPrediction(){
-  if(manualAnalysisRunning || document.getElementById('stadium').disabled) return;
+  if(document.getElementById('stadium').disabled) return;
   const params=getParams();
   if(!params.stadium) return;
-  const key=[params.date,params.stadium,params.race].join(':');
+  const key=predictionKey(params);
+  if(manualAnalysisRunning){
+    if(key===manualAnalysisKey) return;
+    cancelManualAnalysis();
+  }
+  if(savedPredictionRequest?.key===key) return;
+  if(savedPredictionRequest) savedPredictionRequest.controller.abort();
+  const pending={key,controller:new AbortController()};
+  savedPredictionRequest=pending;
   const sequence=++savedPredictionSequence;
   if(key!==selectedSavedKey){
     selectedSavedKey=key;
@@ -765,8 +828,8 @@ async function loadSelectedSavedPrediction(){
     document.getElementById('reason').textContent='保存済みの自動予想を確認しています。';
   }
   try{
-    const response=await fetch('/api/saved_prediction?'+new URLSearchParams(params));
-    const data=await response.json();
+    const {response,data}=await fetchPredictionJson(
+      '/api/saved_prediction?'+new URLSearchParams(params),{},15000,pending.controller);
     if(sequence!==savedPredictionSequence || manualAnalysisRunning) return;
     if(!response.ok || !data.ok){
       if(!lastPrediction) document.getElementById('reason').textContent='展示後の自動予想が保存されると、ここに表示されます。';
@@ -793,6 +856,8 @@ async function loadSelectedSavedPrediction(){
       : `展示後の自動予想を${savedAt}に保存しました。結果確定後に自動で照合・学習します。`;
   }catch(error){
     if(sequence===savedPredictionSequence && !lastPrediction) document.getElementById('reason').textContent='保存済み予想を取得できませんでした。次回再確認します。';
+  }finally{
+    if(savedPredictionRequest===pending) savedPredictionRequest=null;
   }
 }
 
@@ -852,16 +917,27 @@ function getParams(){
  };
 }
 async function analyze(){
+ if(manualAnalysisRunning || document.getElementById('stadium').disabled) return;
  manualAnalysisRunning=true;
  const p=getParams();
+ const sequence=++manualAnalysisSequence;
+ manualAnalysisKey=predictionKey(p);
+ const controller=new AbortController();
+ manualAnalysisController=controller;
+ ++savedPredictionSequence;
+ if(savedPredictionRequest) savedPredictionRequest.controller.abort();
+ savedPredictionRequest=null;
+ const current=()=>sequence===manualAnalysisSequence && predictionKey(p)===predictionKey();
  const investment=100;
 
  const status=document.getElementById('reason');
  const btn=document.getElementById('analyzeBtn'); btn.disabled=true;
+ document.getElementById('fixed').disabled=true;
  status.textContent='公式データを取得して分析中…';
  try{
-  const q=new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race,fixed:p.fixed,history_days:'30'});
-  const r=await fetch('/api/analyze?'+q.toString()); const x=await r.json();
+  const q=new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race,fixed:p.fixed,history_days:'3'});
+  const {response:r,data:x}=await fetchPredictionJson('/api/analyze?'+q.toString(),{},60000,controller);
+  if(!current()) return;
   if(!r.ok||!x.ok) throw new Error(x.error||'分析に失敗しました');
   renderAnalysis(x);
   const bets=Array.isArray(x.bets)?x.bets:[];
@@ -870,12 +946,14 @@ async function analyze(){
   let saveR;
   let saved;
   let saveLastError;
+  status.textContent='分析が完了しました。予想を保存しています…';
 
   for(let saveAttempt=1; saveAttempt<=3; saveAttempt++){
+    if(!current()) return;
 
     try{
 
-      saveR=await fetch(
+      const saveResult=await fetchPredictionJson(
         '/api/performance',
         {
           method:'POST',
@@ -905,13 +983,16 @@ async function analyze(){
             note:'一括AI分析'
 
           })
-        }
+        },20000,controller
       );
-
-      saved=await saveR.json();
+      if(!current()) return;
+      saveR=saveResult.response;
+      saved=saveResult.data;
 
       if(saveR.status===409 && saved.code==='prediction_frozen'){
         manualAnalysisRunning=false;
+        lastPrediction=null;
+        selectedSavedKey='';
         await loadSelectedSavedPrediction();
         return;
       }
@@ -925,8 +1006,14 @@ async function analyze(){
       );
 
     }catch(e){
-
+      if(!current()) return;
       saveLastError = e;
+      // A timed-out controller cannot be reused for another save attempt.
+      if(e.name==='TimeoutError'){
+        e.message='分析は完了しましたが、予想の保存を確認できませんでした。レースを選び直して保存状況を確認してください。';
+        lastPrediction=null;
+        break;
+      }
 
     }
 
@@ -955,8 +1042,20 @@ async function analyze(){
 }
   document.getElementById('settleBtn').disabled=false;
   status.textContent=`AI予想を保存しました。${x.venue} ${p.race}R｜本命 ${x.main}号艇｜次に「結果取得・学習」を押せます。`;
- }catch(e){status.textContent='エラー: '+e.message; document.getElementById('settleBtn').disabled=true;}
- finally{manualAnalysisRunning=false;btn.disabled=lastPrediction?.prediction_origin==='automatic';}
+ }catch(e){
+  if(current()){
+    status.textContent=e.name==='TimeoutError' ? e.message : 'エラー: '+e.message;
+    document.getElementById('settleBtn').disabled=true;
+  }
+ }
+ finally{
+  if(sequence===manualAnalysisSequence){
+    manualAnalysisRunning=false;
+    manualAnalysisController=null;
+    btn.disabled=document.getElementById('stadium').disabled || lastPrediction?.prediction_origin==='automatic';
+    document.getElementById('fixed').disabled=lastPrediction?.prediction_origin==='automatic';
+  }
+ }
 }
 function renderAnalysis(x){
 
