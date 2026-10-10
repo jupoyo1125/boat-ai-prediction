@@ -32,9 +32,15 @@ function context(handler) {
   Object.assign(elements.get('stadium'),{value:'10',options:[{value:'10',textContent:'三国'}],selectedIndex:0});
   elements.get('race').value='1R'; elements.get('fixed').value='none';
   elements.get('perfScope').value='automatic';
-  const calls=[];
-  const ctx=vm.createContext({Date,URLSearchParams,console:{error(){}},
-    window:{scrollTo(){}},setTimeout(resolve){resolve();},
+  const calls=[],timers=new Map();let nextTimer=0;
+  const ctx=vm.createContext({Date,URLSearchParams,AbortController,console:{error(){}},
+    window:{scrollTo(){}},
+    setTimeout(callback,delay){
+      const id=++nextTimer;
+      if(delay>=15000) timers.set(id,{callback,delay});
+      else Promise.resolve().then(callback);
+      return id;
+    },clearTimeout(id){timers.delete(id);},
     document:{getElementById:id=>elements.get(id),createElement:node,querySelectorAll:()=>nodes},
     async fetch(url,options){
       calls.push({url,options});
@@ -46,7 +52,12 @@ function context(handler) {
       throw new Error('Unexpected request '+url);
     }});
   vm.runInContext(definitions,ctx);
-  return {ctx,elements,calls,run:code=>vm.runInContext(code,ctx)};
+  return {ctx,elements,calls,timers,run:code=>vm.runInContext(code,ctx),
+    expire(delay){
+      for(const [id,timer] of timers){
+        if(timer.delay===delay){timers.delete(id);timer.callback();}
+      }
+    }};
 }
 
 async function run() {
@@ -119,5 +130,104 @@ async function run() {
   assert.equal(buttons.elements.get('race').value,'2R');
   assert.ok(buttons.calls.some(call=>call.url.includes('race=2')));
   console.log('PASS: The race selector loads the corresponding saved automatic forecast.');
+
+  let stalled=true;
+  const timeout=context(url=>{
+    if(url.startsWith('/api/analyze?')) return stalled ? new Promise(()=>{}) : response(prediction);
+    if(url==='/api/performance') return response({ok:true});
+  });
+  const waiting=timeout.run('analyze()');
+  timeout.expire(60000);await waiting;
+  assert.match(timeout.elements.get('reason').textContent,/もう一度押してください/);
+  assert.equal(timeout.elements.get('analyzeBtn').disabled,false);
+  assert.equal(timeout.run('manualAnalysisRunning'),false);
+  assert.ok(timeout.calls[0].options.signal.aborted);
+  assert.equal(timeout.calls.filter(call=>call.options?.method==='POST').length,0);
+  stalled=false;await timeout.run('analyze()');
+  assert.match(timeout.elements.get('reason').textContent,/AI予想を保存しました/);
+  assert.equal(timeout.elements.get('settleBtn').disabled,false);
+  console.log('PASS: A stalled analysis times out, makes no save, and permits a successful retry.');
+
+  const body=context(url=>url.startsWith('/api/analyze?') ? {ok:true,json:()=>new Promise(()=>{})} : undefined);
+  const receiving=body.run('analyze()');
+  await new Promise(resolve=>setImmediate(resolve));
+  body.expire(60000);await receiving;
+  assert.equal(body.elements.get('analyzeBtn').disabled,false);
+  assert.equal(body.run('manualAnalysisRunning'),false);
+  assert.equal(body.calls.filter(call=>call.options?.method==='POST').length,0);
+  console.log('PASS: The analysis timeout also covers a stalled response body.');
+
+  const unavailable=context(url=>url.startsWith('/api/analyze?')
+    ? response({ok:false,code:'analysis_timeout',error:'公式データの取得に時間がかかっています。'},503) : undefined);
+  await unavailable.run('analyze()');
+  assert.equal(unavailable.elements.get('analyzeBtn').disabled,false);
+  assert.match(unavailable.elements.get('reason').textContent,/時間がかかっています/);
+  assert.equal(unavailable.calls.filter(call=>call.options?.method==='POST').length,0);
+  console.log('PASS: A server timeout restores the analysis button without saving an incomplete forecast.');
+
+  const saveTimeout=context(url=>{
+    if(url.startsWith('/api/analyze?')) return response(prediction);
+    if(url==='/api/performance') return new Promise(()=>{});
+  });
+  const saving=saveTimeout.run('analyze()');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.match(saveTimeout.elements.get('reason').textContent,/予想を保存しています/);
+  saveTimeout.expire(20000);await saving;
+  assert.equal(saveTimeout.elements.get('analyzeBtn').disabled,false);
+  assert.equal(saveTimeout.elements.get('settleBtn').disabled,true);
+  assert.match(saveTimeout.elements.get('reason').textContent,/保存を確認できませんでした/);
+  assert.equal(saveTimeout.calls.filter(call=>call.options?.method==='POST').length,1);
+  console.log('PASS: An uncertain save is reported separately and is not automatically repeated.');
+
+  let finishAnalysis;
+  const oldAnalysis=new Promise(resolve=>finishAnalysis=resolve);
+  const changed=context(url=>url.startsWith('/api/analyze?') ? oldAnalysis : undefined);
+  const oldRun=changed.run('analyze()');
+  changed.elements.get('race').value='2R';
+  await changed.run('loadSelectedSavedPrediction()');
+  finishAnalysis(response({...prediction,main:6}));await oldRun;
+  assert.equal(changed.elements.get('main').textContent,'1号艇');
+  assert.equal(changed.elements.get('analyzeBtn').disabled,true);
+  assert.equal(changed.calls.filter(call=>call.options?.method==='POST').length,0);
+  console.log('PASS: Changing races cancels old analysis, blocks its save, and keeps the new saved forecast.');
+
+  let finishSave;
+  const oldSave=new Promise(resolve=>finishSave=resolve);
+  const changedSave=context(url=>{
+    if(url.startsWith('/api/analyze?')) return response(prediction);
+    if(url==='/api/performance') return oldSave;
+  });
+  const oldSaving=changedSave.run('analyze()');
+  await new Promise(resolve=>setImmediate(resolve));
+  changedSave.elements.get('race').value='2R';
+  await changedSave.run('loadSelectedSavedPrediction()');
+  finishSave(response({ok:true}));await oldSaving;
+  assert.equal(changedSave.elements.get('analyzeBtn').disabled,true);
+  assert.match(changedSave.elements.get('reason').textContent,/展示後の自動予想を/);
+  console.log('PASS: A late save response cannot overwrite the newly selected race.');
+
+  const savedTimeout=context(url=>url.startsWith('/api/saved_prediction?') ? new Promise(()=>{}) : undefined);
+  const checking=savedTimeout.run('loadSelectedSavedPrediction()');
+  await savedTimeout.run('loadSelectedSavedPrediction()');
+  assert.equal(savedTimeout.calls.length,1);
+  savedTimeout.expire(15000);await checking;
+  assert.match(savedTimeout.elements.get('reason').textContent,/取得できませんでした/);
+  assert.equal(savedTimeout.elements.get('analyzeBtn').disabled,false);
+  assert.equal(savedTimeout.timers.size,0);
+  console.log('PASS: Saved forecasts are fetched once at a time and recover from a stalled request.');
+
+  const frozenTimeout=context((url,options)=>{
+    if(url.startsWith('/api/analyze?')) return response({...prediction,main:6});
+    if(url==='/api/performance' && options?.method==='POST') return response({ok:false,code:'prediction_frozen'},409);
+    if(url.startsWith('/api/saved_prediction?')) return new Promise(()=>{});
+  });
+  const frozenWaiting=frozenTimeout.run('analyze()');
+  await new Promise(resolve=>setImmediate(resolve));
+  frozenTimeout.expire(15000);await frozenWaiting;
+  assert.equal(frozenTimeout.elements.get('main').textContent,'-');
+  assert.equal(frozenTimeout.elements.get('settleBtn').disabled,true);
+  assert.equal(frozenTimeout.elements.get('analyzeBtn').disabled,false);
+  assert.match(frozenTimeout.elements.get('reason').textContent,/取得できませんでした/);
+  console.log('PASS: A stalled frozen-forecast reload clears the unaccepted preview and ends the save message.');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
