@@ -15,13 +15,13 @@ function context(handler){
     {textContent:'-',innerHTML:'',value:'',disabled:false,style:{},classList:{add(){},remove(){}}}]));
   elements.get('perfScope').value='automatic';
   const calls=[];
-  const ctx=vm.createContext({Date,URLSearchParams,console:{error(){}},
+  const ctx=vm.createContext({Date,URLSearchParams,AbortController,setTimeout,clearTimeout,console:{error(){}},
     document:{getElementById:id=>elements.get(id)},
     async fetch(url,options){
       calls.push({url,options});
       const custom=handler&&await handler(url,options);
       if(custom)return custom;
-      if(url==='/api/performance')return response({ok:true,category_stats:{gachi:{roi:34.4,hit_rate:16.7}},
+      if(url==='/api/performance'||url.startsWith('/api/performance?'))return response({ok:true,category_stats:{gachi:{roi:34.4,hit_rate:16.7}},
         automatic_category_stats:{gachi:{roi:99,hit_rate:100}},historical,legacy_records:0});
       if(url==='/api/historical')return response(historical);
       if(url==='/api/model')return response({ok:true,model:{samples:855,hits:262,weights:{}}});
@@ -38,10 +38,11 @@ async function run(){
   assert.match(live.elements.get('historyStatus').textContent,/2025\/10\/09 ～ 2026\/10\/08/);
   assert.match(html,/<h2>過去1年の検証・学習<\/h2>/);
   assert.doesNotMatch(html,/過去10年/);
-  live.elements.get('perfScope').value='historical';await live.run('loadPerformanceStatus()');
-  assert.equal(live.elements.get('perfGachiRoi').textContent,'-');
-  assert.equal(live.elements.get('perfGachiHitRate').textContent,'-');
-  assert.match(live.elements.get('perfNote').textContent,/当時保存した運用実績とは異なります/);
+  assert.equal(live.elements.get('historyPerfGachiRoi').textContent,'-');
+  assert.equal(live.elements.get('historyPerfGachiHitRate').textContent,'-');
+  assert.doesNotMatch(html,/<option value="historical">/);
+  assert.match(html,/予想を当時保存した運用実績とは異なります/);
+  assert.match(html,/<summary>過去1年の再現検証の成績<\/summary>/);
   console.log('PASS: Historical learning is visible without counting missing odds as losses or live performance.');
 
   const paused=context();paused.run(`renderHistorical(${JSON.stringify({...historical,enabled:false,phase:'paused'})})`);
@@ -66,10 +67,10 @@ async function run(){
   assert.match(fail.elements.get('historyStatus').textContent,/通信エラー/);
   console.log('PASS: A failed control response checks saved status without blindly starting another run.');
 
-  const polling=context();polling.elements.get('perfScope').value='historical';await polling.run('loadHistoricalStatus()');
+  const polling=context();await polling.run('loadHistoricalStatus()');
   assert.equal(polling.calls.length,1);
   assert.equal(polling.calls[0].url,'/api/historical');
-  assert.equal(polling.elements.get('perfGachiRoi').textContent,'-');
+  assert.equal(polling.elements.get('historyPerfGachiRoi').textContent,'-');
   console.log('PASS: Progress refresh avoids reading the entire live ledger.');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

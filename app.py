@@ -1085,18 +1085,39 @@ def feature_snapshot(boats):
 
 @app.get('/api/performance')
 def api_performance():
+    requested_date = request.args.get('date')
+    date = (datetime.now(timezone(timedelta(hours=9))).strftime('%Y%m%d')
+            if requested_date is None else str(requested_date).replace('/', '').replace('-', ''))
+    try:
+        if not re.fullmatch(r'\d{8}', date):
+            raise ValueError
+        datetime.strptime(date, '%Y%m%d')
+    except ValueError:
+        return jsonify({'ok': False, 'error': '日付を確認してください。'}), 400
+
     rows = load_ledger()
-    return jsonify({
+    automatic_rows = [row for row in rows if row.get('prediction_origin') == 'automatic']
+    daily_rows = [row for row in rows
+                  if str(row.get('date', '')).replace('/', '').replace('-', '') == date]
+    response = jsonify({
         'ok': True,
         'stats': ledger_stats(rows),
         'category_stats': category_ledger_stats(rows),
-        'automatic_category_stats': category_ledger_stats([
-            row for row in rows if row.get('prediction_origin') == 'automatic'
-        ]),
+        'automatic_category_stats': category_ledger_stats(automatic_rows),
+        'daily': {
+            'date': date,
+            'category_stats': category_ledger_stats(daily_rows),
+            'automatic_category_stats': category_ledger_stats([
+                row for row in daily_rows if row.get('prediction_origin') == 'automatic'
+            ]),
+            'legacy_records': sum(1 for row in daily_rows if row.get('performance_version') != 2),
+        },
         'historical': historical_status(),
         'legacy_records': sum(1 for row in rows if row.get('performance_version') != 2),
         'records': rows[-100:],
     })
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 @app.get('/api/saved_prediction')
 def api_saved_prediction():
     date = str(request.args.get('date','')).replace('/','').replace('-','')

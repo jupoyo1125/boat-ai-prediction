@@ -17,9 +17,9 @@ function context(outcomes, gate, analysisHandler) {
   const requests=[];
   const ctx = vm.createContext({
     document:{getElementById(id){return elements.get(id);}},
-    URLSearchParams,
+    URLSearchParams,AbortController,clearTimeout,
     console:{error(){}},
-    setTimeout(resolve){resolve();},
+    setTimeout(resolve,delay){if(delay>=15000)return setTimeout(resolve,delay);resolve();return 0;},
     async fetch(url, options) {
       if(url === '/api/analyze_batch') {
         calls++;
@@ -38,7 +38,7 @@ function context(outcomes, gate, analysisHandler) {
         if(disconnected) throw new Error(disconnected.throw);
         return {ok:true,status:200,json:async()=>({ok:true,results:selected})};
       }
-      if(url==='/api/performance') {
+      if(url==='/api/performance'||url.startsWith('/api/performance?')) {
         return {ok:true,json:async()=>({ok:true,category_stats:{},legacy_records:0})};
       }
       if(url==='/api/model') return {ok:true,json:async()=>({ok:true,model:{}})};

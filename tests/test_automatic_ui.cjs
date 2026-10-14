@@ -46,7 +46,7 @@ function context(handler) {
       calls.push({url,options});
       const custom=handler && await handler(url,options);
       if(custom) return custom;
-      if(url==='/api/performance') return response({ok:true,category_stats:{gachi:{roi:34.4,hit_rate:16.7}},automatic_category_stats:{gachi:{roi:99,hit_rate:100}},legacy_records:0});
+      if(url==='/api/performance'||url.startsWith('/api/performance?')) return response({ok:true,category_stats:{gachi:{roi:34.4,hit_rate:16.7}},automatic_category_stats:{gachi:{roi:99,hit_rate:100}},legacy_records:0});
       if(url==='/api/model') return response({ok:true,model:{samples:1,hits:1,weights:{}}});
       if(url.startsWith('/api/saved_prediction?')) return response({ok:true,record:saved});
       throw new Error('Unexpected request '+url);
