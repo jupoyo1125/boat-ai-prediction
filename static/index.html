@@ -111,10 +111,24 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
  @media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:auto}.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(3,1fr)}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){.app{padding:12px}header{align-items:flex-start}.badge{display:none}.hero{padding:17px}h1{font-size:24px}.cards{grid-template-columns:repeat(2,1fr)}.controls{grid-template-columns:1fr 1fr}.controls button{grid-column:1/-1}}
 .performance-categories{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .performance-category{padding:14px;background:var(--panel2);border:1px solid var(--line);border-radius:13px}
-.performance-category h3{font-size:16px;margin:0 0 12px}
+.performance-category h4{font-size:16px;margin:0 0 12px}
 .performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 .performance-category .metric{background:var(--panel)}
 @media(max-width:760px){.performance-categories{grid-template-columns:1fr}}
+.performance-controls{display:grid;grid-template-columns:minmax(0,360px);gap:6px;margin-bottom:18px}
+.performance-controls label,.performance-period-note{color:var(--muted);font-size:13px}
+.performance-period{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
+.performance-period h3{font-size:17px;margin:0 0 8px}
+.performance-period-note{margin:0 0 12px;line-height:1.6}
+.performance-date-controls{display:grid;grid-template-columns:minmax(0,220px) auto;gap:8px;max-width:360px;margin:8px 0 12px}
+.performance-date-controls button{width:auto;white-space:nowrap}
+.performance-controls select,.performance-date-controls input{min-width:0}
+.performance-date-controls input{color-scheme:dark}
+.performance-category .performance-summary{color:var(--muted);font-size:12px;line-height:1.6;margin:10px 0 0}
+.performance-category .metric b{overflow-wrap:anywhere}
+.performance-historical{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.performance-historical summary{cursor:pointer;font-weight:700;font-size:14px}
+.performance-historical .performance-categories{margin-top:12px}
 .maintenance{margin-top:16px}
 .maintenance summary{display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;font-weight:800}
 .maintenance summary::-webkit-details-marker{display:none}
@@ -281,41 +295,121 @@ AIが現在重視している特徴
 <button id="historyApply" class="secondary" style="margin-top:10px" onclick="controlHistorical('apply_model')" disabled>完了した学習モデルを本番に適用</button>
 <div class="status" id="historyStatus">前日までのモデルで予測し、結果を照合して次の日の学習に使います。画面を閉じても、サーバーが稼働中は処理を続けます。</div>
 <p style="color:var(--muted);font-size:13px">過去検証には保存された締切時オッズを使います。現在の自動予想の実績とは分けて集計し、オッズのないレースは回収率から除外します。通信失敗やサーバー再起動後は、保存済みの位置から再開します。</p>
-</section>
-<section class="panel" style="margin-top:16px">
-<h2>運用実績</h2>
-<label for="perfScope" style="color:var(--muted)">集計対象</label>
-<select id="perfScope" style="margin:8px 0 16px;max-width:360px">
-<option value="automatic">自動予想の累計</option>
-<option value="historical">過去1年の検証（締切時オッズ）</option>
-<option value="all">すべての保存記録（手動予想を含む）</option>
-</select>
+<details class="performance-historical" id="historicalPerformance">
+<summary>過去1年の再現検証の成績</summary>
+<p class="performance-period-note">予想を当時保存した運用実績とは異なります。展示・オッズ・結果がそろったレースだけを集計します。</p>
 <div class="performance-categories">
 <section class="performance-category">
-<h3>🎯 ガチガチ</h3>
+<h4>🎯 ガチガチ</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfGachiRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfGachiHitRate">-</b></div>
+</div>
+</section>
+<section class="performance-category">
+<h4>🚀 ロマン砲</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfRomanRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfRomanHitRate">-</b></div>
+</div>
+</section>
+<section class="performance-category">
+<h4>👹 鬼しぼり</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfOniRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfOniHitRate">-</b></div>
+</div>
+</section>
+</div>
+</details>
+</section>
+<section class="panel" style="margin-top:16px" id="performancePanel">
+<h2>運用実績</h2>
+<div class="performance-controls">
+<label for="perfScope">予想の種類（日次・累計に共通）</label>
+<select id="perfScope">
+<option value="automatic">自動予想</option>
+<option value="all">すべての保存記録（手動予想を含む）</option>
+</select>
+</div>
+<section class="performance-period" aria-labelledby="perfDailyTitle">
+<h3 id="perfDailyTitle">日次実績</h3>
+<label for="perfDate" class="performance-period-note">確認する日付</label>
+<div class="performance-date-controls">
+<input id="perfDate" type="date" aria-label="実績の日付">
+<button id="perfToday" class="secondary" onclick="showTodayPerformance()">今日</button>
+</div>
+<p class="performance-period-note" id="perfDailyNote">日本時間の本日分を表示します。日付を変えると、過去の1日分も確認できます。</p>
+<div class="performance-categories">
+<section class="performance-category">
+<h4>🎯 ガチガチ</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="perfDailyGachiRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfDailyGachiHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfDailyGachiProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfDailyGachiSettled">-</b></div>
+</div>
+<p class="performance-summary" id="perfDailyGachiSummary">実績を確認しています。</p>
+</section>
+<section class="performance-category">
+<h4>🚀 ロマン砲</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="perfDailyRomanRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfDailyRomanHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfDailyRomanProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfDailyRomanSettled">-</b></div>
+</div>
+<p class="performance-summary" id="perfDailyRomanSummary">実績を確認しています。</p>
+</section>
+<section class="performance-category">
+<h4>👹 鬼しぼり</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="perfDailyOniRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="perfDailyOniHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfDailyOniProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfDailyOniSettled">-</b></div>
+</div>
+<p class="performance-summary" id="perfDailyOniSummary">実績を確認しています。</p>
+</section>
+</div>
+</section>
+<section class="performance-period" aria-labelledby="perfCumulativeTitle">
+<h3 id="perfCumulativeTitle">累計実績</h3>
+<p class="performance-period-note">保存開始から現在までの全日付を集計します。日次の日付を変更しても、累計の期間は変わりません。</p>
+<div class="performance-categories">
+<section class="performance-category">
+<h4>🎯 ガチガチ</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfGachiRoi">-</b></div>
 <div class="metric"><small>的中率</small><b id="perfGachiHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfGachiProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfGachiSettled">-</b></div>
 </div>
+<p class="performance-summary" id="perfGachiSummary">実績を確認しています。</p>
 </section>
 <section class="performance-category">
-<h3>🚀 ロマン砲</h3>
+<h4>🚀 ロマン砲</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfRomanRoi">-</b></div>
 <div class="metric"><small>的中率</small><b id="perfRomanHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfRomanProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfRomanSettled">-</b></div>
 </div>
+<p class="performance-summary" id="perfRomanSummary">実績を確認しています。</p>
 </section>
 <section class="performance-category">
-<h3>👹 鬼しぼり</h3>
+<h4>👹 鬼しぼり</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfOniRoi">-</b></div>
 <div class="metric"><small>的中率</small><b id="perfOniHitRate">-</b></div>
+<div class="metric"><small>収支</small><b id="perfOniProfit">-</b></div>
+<div class="metric"><small>結果確定</small><b id="perfOniSettled">-</b></div>
 </div>
+<p class="performance-summary" id="perfOniSummary">実績を確認しています。</p>
 </section>
 </div>
-<div class="status" id="perfNote">
-各買い目100円。結果確定分の回収率・的中率を区分ごとに集計します。
-</div>
+</section>
+<div class="status" id="perfNote" aria-live="polite">日次・累計の実績を確認しています。</div>
 </section>
 <details class="panel maintenance" id="maintenance">
   <summary><span>メンテナンス</span><small>手動の一括操作</small></summary>
@@ -392,6 +486,11 @@ let scheduleSequence=0;
 let scheduleRequestController=null;
 let scheduleLoadedDate='';
 let scheduleLoadedAt=0;
+let performanceRequest=null;
+let performanceSequence=0;
+let performanceFollowingToday=true;
+let performanceDisplayedDate='';
+let performanceDisplayedScope='';
 
 function predictionKey(params=getParams()){
   return [params.date,params.stadium,params.race].join(':');
@@ -674,41 +773,74 @@ async function loadSchedule(){
   console.error('学習状況取得エラー',e);
  }
 }
-async function loadPerformanceStatus(){
-  const note=document.getElementById('perfNote');
-  try{
-    const r=await fetch('/api/performance');
-    const x=await r.json();
-    if(!r.ok || !x.ok) throw new Error(x.error || '運用実績の取得に失敗しました');
-    if(!x.category_stats){
-      note.textContent='区分別の運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
-      return;
-    }
-    const scope=document.getElementById('perfScope').value;
-    const automatic=scope==='automatic';
-    if(x.historical) renderHistorical(x.historical);
-    const categoryStats=scope==='historical' ? (x.historical?.category_stats||{}) :
-      automatic ? (x.automatic_category_stats||{}) : x.category_stats;
-    const categories=[['gachi','Gachi'],['roman','Roman'],['oni','Oni']];
-    for(const [category,id] of categories){
-      const s=categoryStats[category] || {};
-      const roi=document.getElementById('perf'+id+'Roi');
-      const hitRate=document.getElementById('perf'+id+'HitRate');
-      roi.textContent=s.roi==null ? '-' : Number(s.roi).toFixed(1)+'%';
-      hitRate.textContent=s.hit_rate==null ? '-' : Number(s.hit_rate).toFixed(1)+'%';
-      roi.title='結果確定'+Number(s.settled||0)+'R｜購入'+Number(s.investment||0).toLocaleString('ja-JP')+'円｜払戻'+Number(s.payout||0).toLocaleString('ja-JP')+'円';
-      hitRate.title='結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R';
-    }
-    note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計します。';
-    note.textContent+=scope==='historical' ? ' 過去の再現検証です。前日までに学習したモデルと締切時オッズを使います。予想を当時保存した運用実績とは異なります。オッズ・展示・結果がそろうレースだけが回収率の対象です。' :
-      automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
-    if(scope!=='historical' && Number(x.legacy_records||0)>0){
-      note.textContent+=' 区分情報のない過去の記録は含みません。';
-    }
-  }catch(e){
-    console.error('運用実績取得エラー',e);
-    note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
+function performanceTodayDate(){
+  return new Date(Date.now()+9*60*60*1000).toISOString().slice(0,10);
+}
+function renderPerformanceCategories(prefix,categoryStats,operational=true){
+  for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
+    const s=categoryStats?.[category];
+    const roi=document.getElementById(prefix+id+'Roi');
+    const hitRate=document.getElementById(prefix+id+'HitRate');
+    roi.textContent=s?.roi==null ? '-' : Number(s.roi).toFixed(1)+'%';
+    hitRate.textContent=s?.hit_rate==null ? '-' : Number(s.hit_rate).toFixed(1)+'%';
+    roi.title=s ? '結果確定'+Number(s.settled||0)+'R｜購入'+Number(s.investment||0).toLocaleString('ja-JP')+'円｜払戻'+Number(s.payout||0).toLocaleString('ja-JP')+'円' : '';
+    hitRate.title=s ? '結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R' : '';
+    if(!operational) continue;
+    const settled=Number(s?.settled||0),pending=Number(s?.pending||0),profit=Number(s?.profit||0);
+    document.getElementById(prefix+id+'Profit').textContent=!s||!settled ? '-' : (profit>0?'+':'')+profit.toLocaleString('ja-JP')+'円';
+    document.getElementById(prefix+id+'Settled').textContent=s ? settled.toLocaleString('ja-JP')+'R' : '-';
+    document.getElementById(prefix+id+'Summary').textContent=!s ? '実績を確認できていません。' :
+      !settled&&!pending ? '対象の保存記録がありません。' : '的中'+Number(s.wins||0)+'R｜結果待ち'+pending+'R';
   }
+}
+function showTodayPerformance(){
+  performanceFollowingToday=true;
+  return loadPerformanceStatus();
+}
+async function loadPerformanceStatus(){
+  const input=document.getElementById('perfDate');
+  if(performanceFollowingToday||!input.value) input.value=performanceTodayDate();
+  const date=input.value.replaceAll('-','');
+  const scope=document.getElementById('perfScope').value;
+  const key=date+':'+scope;
+  if(performanceRequest?.key===key) return performanceRequest.promise;
+  if(performanceRequest) performanceRequest.controller.abort();
+  const pending={key,controller:new AbortController(),sequence:++performanceSequence};
+  performanceRequest=pending;
+  const note=document.getElementById('perfNote');
+  if(performanceDisplayedDate!==date||performanceDisplayedScope!==scope) renderPerformanceCategories('perfDaily',null);
+  if(performanceDisplayedScope!==scope) renderPerformanceCategories('perf',null);
+  document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'の実績を確認しています。';
+  note.textContent='日次・累計の実績を更新しています。';
+  pending.promise=(async()=>{
+    try{
+      const {response:r,data:x}=await fetchPredictionJson('/api/performance?date='+date,{},20000,pending.controller);
+      if(pending.sequence!==performanceSequence) return;
+      if(!r.ok || !x.ok || !x.category_stats) throw new Error(x.error||'運用実績の取得に失敗しました。');
+      const automatic=scope==='automatic';
+      const cumulative=automatic ? x.automatic_category_stats : x.category_stats;
+      renderPerformanceCategories('perf',cumulative);
+      const daily=x.daily?.date===date ? (automatic ? x.daily.automatic_category_stats : x.daily.category_stats) : null;
+      renderPerformanceCategories('perfDaily',daily);
+      performanceDisplayedDate=date;
+      performanceDisplayedScope=scope;
+      if(x.historical) renderHistorical(x.historical);
+      document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'｜'+(automatic?'自動予想':'手動予想を含む保存記録')+'の1日分。日付はレースの開催日です。';
+      note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計し、結果待ちは回収率・的中率・収支に含めません。';
+      note.textContent+=automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
+      if(Number(x.legacy_records||0)>0) note.textContent+=' 区分情報のない過去の記録は含みません。';
+      if(!daily) note.textContent+=' 日次実績を取得できませんでした。時間をおいて再読み込みしてください。';
+    }catch(error){
+      if(pending.sequence!==performanceSequence||error.name==='AbortError') return;
+      console.error('運用実績取得エラー',error);
+      document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'の実績を取得できませんでした。';
+      note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
+      if(performanceDisplayedDate===date&&performanceDisplayedScope===scope) note.textContent+=' 表示中の数値は前回確認時点の実績です。';
+    }finally{
+      if(performanceRequest===pending) performanceRequest=null;
+    }
+  })();
+  return pending.promise;
 }
 function renderHistorical(status){
   const formatDate=value=>String(value||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1/$2/$3');
@@ -734,6 +866,7 @@ function renderHistorical(status){
   message+='。オッズ不足 '+count(status.missing_odds)+'R、出走・展示不足 '+count(status.missing_features)+'R、返還・不完全な結果など '+count(status.excluded_results)+'R。';
   message+=' 学習は過去検証用モデルに保存されます。本番に適用するまでは、現在の学習モデルで自動予想を続けます。';
   document.getElementById('historyStatus').textContent=message;
+  renderPerformanceCategories('historyPerf',status.category_stats,false);
 }
 async function controlHistorical(action){
   const status=document.getElementById('historyStatus');
@@ -760,13 +893,6 @@ async function loadHistoricalStatus(){
     const data=await response.json();
     if(!response.ok || !data.ok) throw new Error(data.error||'過去検証の状況を取得できませんでした。');
     renderHistorical(data);
-    if(document.getElementById('perfScope').value==='historical'){
-      for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
-        const record=data.category_stats?.[category]||{};
-        document.getElementById('perf'+id+'Roi').textContent=record.roi==null ? '-' : Number(record.roi).toFixed(1)+'%';
-        document.getElementById('perf'+id+'HitRate').textContent=record.hit_rate==null ? '-' : Number(record.hit_rate).toFixed(1)+'%';
-      }
-    }
   }catch(error){
     console.error('過去検証の状況取得エラー',error);
     document.getElementById('historyStatus').textContent='過去検証の状況を取得できませんでした。保存済みの進捗は保持されます。画面を再読み込みして確認してください。';
@@ -1508,6 +1634,10 @@ async function batchSettle(allVenues=false){
   loadSelectedSavedPrediction();
 });
 document.getElementById('perfScope').addEventListener('change',loadPerformanceStatus);
+document.getElementById('perfDate').addEventListener('change',()=>{
+  performanceFollowingToday=document.getElementById('perfDate').value===performanceTodayDate();
+  loadPerformanceStatus();
+});
 setupDates();
 loadSchedule();
 renderRaceButtons();
@@ -1520,6 +1650,9 @@ setInterval(()=>{
 setInterval(()=>{
   if(!document.hidden) loadHistoricalStatus();
 },30000);
+setInterval(()=>{
+  if(!document.hidden) loadPerformanceStatus();
+},60000);
 
 </script>
 </body>
