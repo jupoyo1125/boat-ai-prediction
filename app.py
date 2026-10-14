@@ -13,7 +13,9 @@ import sys
 import threading
 from bs4 import BeautifulSoup
 from odds_parser import parse_odds
-from official_http import OfficialRequestSlots
+from official_http import OfficialRequestSlots, OfficialRequestBusy
+from official_results_cache import DailyResultsCache
+from historical_archive import archive_url, decode_archive, parse_daily_results, MAX_COMPRESSED
 from venue_schedule import VenueScheduleCache
 from model import (
     load as load_model,
@@ -452,16 +454,19 @@ def category_ledger_stats(rows):
     return stats
 
 
-def get(url, timeout=5):
+def get(url, timeout=5, priority=0):
     started = time.monotonic()
 
     try:
-        with _official_slots.slot(timeout=timeout):
+        with _official_slots.slot(timeout=timeout, priority=priority):
             with official_session().get(url, headers=HEAD, timeout=timeout) as r:
                 r.raise_for_status()
                 r.encoding = r.apparent_encoding or 'utf-8'
                 return r.text
 
+    except OfficialRequestBusy:
+        app.logger.info('Official connection slot busy url=%s priority=%s', url, priority)
+        raise
     except requests.RequestException:
         app.logger.exception(
             "External GET failed url=%s timeout=%s elapsed=%.2fs",
@@ -636,6 +641,42 @@ def parse_resultlist(html):
         })
 
     return rows
+
+
+def download_daily_results(date, timeout=15, priority=0):
+    day = datetime.strptime(date, '%Y%m%d').date()
+    if day >= datetime.now(timezone(timedelta(hours=9))).date():
+        raise ValueError('確定後の過去結果ファイルを使用してください。')
+    deadline = time.monotonic() + timeout
+    with _official_slots.slot(timeout=min(15, timeout), priority=priority):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise requests.Timeout('過去の公式結果の取得待ちが時間切れになりました。')
+        with official_session().get(archive_url(date), headers=HEAD,
+                                    timeout=min(15, remaining), stream=True) as response:
+            response.raise_for_status()
+            content = bytearray()
+            for chunk in response.iter_content(8192):
+                if time.monotonic() >= deadline:
+                    raise requests.Timeout('過去の公式結果ファイルの取得が時間切れになりました。')
+                content.extend(chunk)
+                if len(content) > MAX_COMPRESSED:
+                    raise ValueError('公式結果ファイルのサイズが上限を超えました。')
+    return parse_daily_results(decode_archive(bytes(content), date), date)
+
+
+_daily_results = DailyResultsCache(download_daily_results)
+
+
+def submit_daily_results(date, deadline):
+    def fetch():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise requests.Timeout('過去の公式結果の取得待ちが時間切れになりました。')
+        return _daily_results.get(date, timeout=remaining)
+    return _official_pool.submit(fetch)
+
+
 @lru_cache(maxsize=100)
 def historical_stats(jcd, days=30, end_date=None):
     days = max(1, min(int(days), 3))
@@ -658,24 +699,40 @@ def historical_stats(jcd, days=30, end_date=None):
 
     dates_to_fetch = [start + timedelta(days=offset) for offset in range(days)]
     deadline = time.monotonic() + OFFICIAL_PAGE_WAIT_SECONDS
-    pages = [submit_official_page(
-                f'{BASE}resultlist?hd={day.strftime("%Y%m%d")}&jcd={jcd}', deadline)
+    archive_deadline = min(deadline, time.monotonic() + 20)
+    pages = [submit_daily_results(day.strftime('%Y%m%d'), archive_deadline)
              for day in dates_to_fetch]
     try:
-        for page in pages:
-            rs = parse_resultlist(await_official_page(page, deadline))
-            if rs:
-                dates += 1
-                for r in rs:
-                    races += 1
-                    first[int(r['combo'][0])] += 1
-                    combo[r['combo']] = combo.get(r['combo'], 0) + 1
-                    if r['payout'] is not None:
-                        payouts.append(r['payout'])
-    finally:
-        # Do not cache incomplete history or leave abandoned work in the queue.
+        by_day = [[row for row in await_official_page(page, archive_deadline)
+                   if row['stadium'] == str(jcd).zfill(2) and row.get('combo')]
+                  for page in pages]
+    except Exception:
+        # Both sources use only dates before the predicted race. Preserve the
+        # venue-page source if a daily file is unavailable or invalid.
         for page in pages:
             page.cancel()
+        app.logger.warning('Official daily archive unavailable; using venue history jcd=%s end=%s', jcd, end_date)
+        pages = [submit_official_page(
+                    f'{BASE}resultlist?hd={day.strftime("%Y%m%d")}&jcd={jcd}', deadline)
+                 for day in dates_to_fetch]
+        try:
+            by_day = [parse_resultlist(await_official_page(page, deadline)) for page in pages]
+        finally:
+            for page in pages:
+                page.cancel()
+    finally:
+        for page in pages:
+            page.cancel()
+
+    for rs in by_day:
+        if rs:
+            dates += 1
+            for r in rs:
+                races += 1
+                first[int(r['combo'][0])] += 1
+                combo[r['combo']] = combo.get(r['combo'], 0) + 1
+                if r['payout'] is not None:
+                    payouts.append(r['payout'])
 
     rates = {
         str(i):
@@ -1832,13 +1889,13 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         target_date - timedelta(days=1)
     ).strftime('%Y%m%d')
 
-    urls = [source, odds_source] + ([before_source] if before is None else [])
     deadline = time.monotonic() + ANALYSIS_WAIT_SECONDS
+    if hist is None:
+        hist = historical_stats(jcd, days, history_end)
+    urls = [source, odds_source] + ([before_source] if before is None else [])
     pages = {url: submit_official_page(url, deadline) for url in urls}
     # Fetch independent inputs concurrently; retain the same scoring logic.
     try:
-        if hist is None:
-            hist = historical_stats(jcd, days, history_end)
         if model is None:
             model = load_model()
         if before is None:

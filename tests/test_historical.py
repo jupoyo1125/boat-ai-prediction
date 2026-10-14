@@ -14,6 +14,7 @@ import automation
 import historical
 from historical_archive import parse_daily_results, previous_history
 import model
+from official_http import OfficialRequestBusy
 from test_automation import MINIMAL_BEFORE
 
 
@@ -56,6 +57,20 @@ class HistoricalTests(unittest.TestCase):
         self.runner.fetch_results = lambda date: [official(race) for race in range(1, races + 1)]
         self.assertTrue(self.runner.run_once())
         return historical.read_job()
+
+    def test_live_connection_contention_does_not_exhaust_historical_retries(self):
+        state = self.job()
+        state['failures'] = 4
+        historical.write_job(state)
+        with mock.patch.object(self.runner, 'forecast', side_effect=OfficialRequestBusy('live slots busy')):
+            self.assertFalse(self.runner.run_once())
+        after = historical.read_job()
+        self.assertTrue(after['enabled'])
+        self.assertEqual(after['phase'], 'live_priority')
+        self.assertEqual(after['failures'], 4)
+        self.assertEqual(after['position'], state['position'])
+        self.assertEqual(after['model'], state['model'])
+        self.assertIsNotNone(after['retry_at'])
 
     def test_official_download_reads_actual_trifecta_and_never_retains_race_st(self):
         result = parse_daily_results(result_text(), '20161009')[0]

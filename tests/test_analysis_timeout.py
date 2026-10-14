@@ -18,6 +18,8 @@ class AnalysisTimeoutTests(unittest.TestCase):
     def setUp(self):
         core.historical_stats.cache_clear()
         self.addCleanup(core.historical_stats.cache_clear)
+        patch = mock.patch.object(core._daily_results, 'get', side_effect=ValueError('archive unavailable'))
+        patch.start(); self.addCleanup(patch.stop)
         patch = mock.patch.object(core.app.logger, 'disabled', True)
         patch.start(); self.addCleanup(patch.stop)
         self.client = core.app.test_client()
@@ -49,7 +51,7 @@ class AnalysisTimeoutTests(unittest.TestCase):
                 finally:
                     release.set()
         self.assertEqual(len(urls), 3)
-        self.assertFalse(any('resultlist' in url for url in urls))
+        self.assertTrue(all('resultlist' in url for url in urls))
 
     def test_stalled_race_inputs_are_bounded_even_when_history_is_cached(self):
         release = threading.Event()
