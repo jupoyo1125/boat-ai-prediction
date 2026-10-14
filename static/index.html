@@ -859,7 +859,7 @@ function renderHistorical(status){
   const apply=document.getElementById('historyApply');
   apply.disabled=!completed||Number(status.samples||0)<1000||Boolean(status.model_applied_at);
   apply.textContent=status.model_applied_at ? '学習モデルを本番に適用済み' : '完了した学習モデルを本番に適用';
-  const phase={queued:'開始・再開待ち',running:'検証・学習中',retry:'通信の復旧を待っています',paused:'一時停止中',error:'取得を停止しています',completed:'全期間の処理が完了しました'}[status.phase]||'未開始';
+  const phase={queued:'開始・再開待ち',running:'検証・学習中',retry:'通信の復旧を待っています',live_priority:'自動予想を優先しています',paused:'一時停止中',error:'取得を停止しています',completed:'全期間の処理が完了しました'}[status.phase]||'未開始';
   let message=formatDate(status.start_date)+' ～ '+formatDate(status.end_date)+'｜'+phase;
   if(status.exists && !completed) message+='｜処理中の日付：'+formatDate(status.cursor);
   if(status.error) message+='。'+status.error;

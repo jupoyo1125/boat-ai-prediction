@@ -52,6 +52,13 @@ async function run(){
   assert.equal(paused.elements.get('historyApply').disabled,true);
   console.log('PASS: Paused work can resume and cannot apply an incomplete model.');
 
+  const priority=context();priority.run(`renderHistorical(${JSON.stringify({...historical,phase:'live_priority'})})`);
+  assert.match(priority.elements.get('historyStatus').textContent,/自動予想を優先/);
+  assert.equal(priority.elements.get('historyStart').disabled,true);
+  assert.equal(priority.elements.get('historyPause').disabled,false);
+  assert.equal(priority.elements.get('historySamples').textContent,'173R');
+  console.log('PASS: Yielding to live predictions keeps historical work enabled and its saved progress visible.');
+
   const completed=context();completed.run(`renderHistorical(${JSON.stringify({...historical,enabled:false,phase:'completed',samples:1000})})`);
   assert.equal(completed.elements.get('historyStart').disabled,true);
   assert.equal(completed.elements.get('historyApply').disabled,false);

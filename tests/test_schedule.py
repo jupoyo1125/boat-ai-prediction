@@ -81,6 +81,24 @@ class OfficialQueueTests(unittest.TestCase):
         with slots.slot(timeout=.03):
             pass
 
+    def test_live_requests_overtake_queued_history_without_exceeding_the_cap(self):
+        slots = OfficialRequestSlots(1)
+        order = []
+        def request(name, priority):
+            with slots.slot(timeout=1, priority=priority):
+                order.append(name)
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            with slots.slot():
+                history = pool.submit(request, 'history', 1)
+                self.wait_for_queue(slots, 1)
+                first = pool.submit(request, 'live-first', 0)
+                self.wait_for_queue(slots, 2)
+                second = pool.submit(request, 'live-second', 0)
+                self.wait_for_queue(slots, 3)
+            for task in (history, first, second):
+                task.result(timeout=1)
+        self.assertEqual(order, ['live-first','live-second','history'])
+
 
 class ScheduleTests(unittest.TestCase):
     def setUp(self):

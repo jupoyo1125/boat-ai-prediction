@@ -1,6 +1,7 @@
 """Resumable historical evaluation, isolated from genuine pre-race predictions."""
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+from official_http import OfficialRequestBusy
 import copy
 from datetime import datetime, timedelta, timezone
 import json
@@ -216,11 +217,11 @@ class HistoricalRunner:
     def download_html(self, url):
         # One historical request at a time leaves slots for the live runner.
         time.sleep(.25)
-        return self.core.get(url, timeout=15)
+        return self.core.get(url, timeout=15, priority=1)
 
     def download_results(self, date):
         time.sleep(.25)
-        with self.core._official_slots.slot(timeout=15):
+        with self.core._official_slots.slot(timeout=15, priority=1):
             with self.core.official_session().get(archive_url(date), headers=self.core.HEAD,
                                                   timeout=15, stream=True) as response:
                 response.raise_for_status()
@@ -366,6 +367,14 @@ class HistoricalRunner:
             return False
         try:
             return self.prepare_day(state) if state['results'] is None else self.process_batch(state)
+        except OfficialRequestBusy:
+            # A busy live connection cap must not exhaust the download retry budget.
+            updated = copy.deepcopy(state)
+            updated.update(phase='live_priority',
+                           error='開催中の自動予想を優先しています。通信枠が空いたら過去検証を再開します。',
+                           retry_at=(now_jst() + timedelta(seconds=60)).isoformat(timespec='seconds'))
+            checkpoint(state, updated)
+            return False
         except Exception:
             self.core.app.logger.exception('Historical processing will resume at its saved checkpoint')
             updated = copy.deepcopy(state)
