@@ -5,7 +5,9 @@
 ## 対象と投稿内容
 
 - 投稿先は `@ton123kyotei456`、対象場は平和島（04）です。投稿前にAPIでアカウントの一致を確認します。
-- 対象日を必須とし、日本時間でその日が終了すると自動停止します。全場・毎日への自動的な拡大はありません。
+- 対象の競走場は平和島だけです。`date` モードは指定した当日だけ、明示的に設定した `daily` モードは開始日から終了日まで日本時間の当日を対象にします。単日の既存設定を勝手に毎日に切り替えません。
+- 今回承認された運用は **2026/10/16から、平和島の開催日の全12R** です。現在のAPIキーの期限に合わせ、運用期間の上限を2026/11/14に設定します。キーはその日の途中で期限になる場合があり、期限切れでは投稿を成功扱いにしません。更新する際はキーと運用期間を確認してください。
+- 日付が変わると対象日を再計算し、1Rから12Rを対象にします。開始日前は待機し、終了日の翌日には停止します。平和島の保存済み自動予想がない日は投稿しません。
 - 6艇の展示タイム・展示STが入った、サイトの保存済み自動予想だけを使用します。投稿のための再予想や結果を見た後の予想作成はしません。
 - 1レースにつきテキスト1投稿。本命・相手軸・穴、展示データ、ガチガチ／ロマン砲／鬼しぼりの全買い目、保存時刻と締切を表示します。買い目を省略して的中実績のように見せません。
 - 「独自作成のAI予想サイトでは、」の表現を使い、サイトURLやドメインは掲載しません。
@@ -14,23 +16,31 @@
 
 ## Bufferで接続する（今回の運用）
 
-Facebook開発者画面のログインは使いません。Bufferのアカウントと、Instagramに紐づいた公開Threadsプロフィールが必要です。
+Bufferのアカウントと、Instagramに紐づいた公開Threadsプロフィールが必要です。
 
 1. Bufferに無料登録、または既存アカウントでログインします。Threadsチャンネルとして **`@ton123kyotei456`** を接続します。Instagram経由で対象のThreadsプロフィールを選び、実際の接続先を確認します。
-2. Bufferの **Settings → API** で、この本人の運用に使うAPIキーを作成します。投稿の作成・編集と読み取り、接続チャンネルの確認に必要な権限を使用します。キーはチャットやGitHubへ送らず、Renderの秘密情報欄に直接入力します。
+2. メールアドレスの確認後、Bufferの **Settings → API** で、この本人の運用に使うAPIキーを作成します。権限は `account:read`・`posts:read`・`posts:write` の3つです。キーはチャットやGitHubへ送らず、Renderの秘密情報欄に直接入力します。
 3. 対象のBufferチャンネルIDを確認し、Renderの既存サービス `boat-ai-prediction` の **Environment** に次を設定します。チャンネルIDとThreadsのネイティブユーザーIDは別物です。
 
-| 変数 | 2026/10/15の平和島の設定 |
+| 変数 | 毎開催日の平和島の設定 |
 |---|---|
 | `BOAT_THREADS_ENABLED` | 接続完了まで `0`。接続・対象確認後に `1` |
 | `BOAT_THREADS_PROVIDER` | `buffer` |
-| `BOAT_THREADS_DATE` | `20261015` |
-| `BOAT_THREADS_FROM_RACE` | `10`（1R・6R・9RはMetricoolから公開確認済み） |
+| `BOAT_THREADS_MODE` | `daily` |
+| `BOAT_THREADS_START_DATE` | `20261016` |
+| `BOAT_THREADS_UNTIL_DATE` | `20261114` |
+| `BOAT_THREADS_FROM_RACE` | `1`（dailyモードでは全12Rが必須） |
 | `BOAT_BUFFER_CHANNEL_ID` | 上記アカウントのBufferチャンネルID |
 | `BUFFER_API_KEY` | Bufferで作成した本人のAPIキー（秘密情報） |
 
-4. この変更をデプロイし、`GET /api/threads_publishing` が `provider:buffer` を返すことを確認します。`enabled:true` は必要な設定がそろった意味で、APIキーの有効性や投稿の成功を保証するものではありません。最初の未投稿・締切前レースで実際の `published` とThreadsの投稿URLを確認します。
-5. 接続作業中に別のレースもMetricoolから投稿した場合、**最初の未投稿レースへ開始レースを進めてから有効化**します。締切を過ぎたレースはさかのぼって投稿しません。
+`BOAT_THREADS_DATE` はdailyモードでは使用しません。既存の単日用の値が残っていても、その日を再投稿しません。
+
+4. この変更をデプロイし、`GET /api/threads_publishing` が `provider:buffer`・`mode:daily` を返すことを確認します。開始日前は `armed:true`・`enabled:false`・`phase:scheduled` です。開始日からは `enabled:true` になります。`enabled` は処理を有効にした意味で、実投稿の成功を保証しません。
+5. `connection.state:connected` は実際のAPIで接続チャンネル・投稿先を読み取り確認できた意味です。起動時は開始日前でも読み取りだけを行い、接続が正常な場合は各ワーカーが監視時間中に最大1時間に1回、エラー後は最大15分に1回再確認します。公開直前にも必ず投稿先を再確認します。エラーの本文やキーは状態APIに出しません。
+6. 最初の未投稿・締切前レースで実際の `published` とThreadsの投稿URLを確認します。接続テストのための架空予想や、締切後の過去予想は投稿しません。
+7. dailyの開始日は、1Rをまだ投稿していない日を指定します。手動投稿と並行運用しません。途中で切り替える必要がある場合は無効化し、その日だけ `date` モードで最初の未投稿レースを指定します。
+
+既存のGitHub Actionsが5分おきにサービスを起こし、自動予想の状態を読み取り確認します。このアクセスによって投稿処理の待機も維持します。Actionsの遅延や外部APIの障害まで即時性を保証しません。停止する場合は `BOAT_THREADS_ENABLED=0` を保存してデプロイします。
 
 送信前にBufferのチャンネルID・サービスがThreadsであること・ユーザー名の一致、切断／ロック／一時停止がないことを確認します。別アカウントへの自動切り替えや、Threads公式APIへの自動フォールバックは行いません。
 
@@ -38,23 +48,26 @@ Bufferにはまず非公開の下書きを保存します。その内容と投�
 
 締切まで2分になってもBuffer側で `scheduled` のままなら、待機中の投稿を下書きへ戻します。公開済みのThreads投稿は削除しません。Buffer側がすでに `sending` の場合、外部サービスの公開遅延を完全には制御できません。確認された公開時刻が締切後なら `published_late`、成否を確定できなければ `uncertain` と表示し、自動再投稿しません。Bufferの投稿制限・API利用枠・一時的な障害でも、成功した扱いにはしません。
 
-## Threads公式APIで接続する（代替）
+## 単日の運用とThreads公式APIで接続する場合
+
+単日だけ運用する場合は `BOAT_THREADS_MODE=date`、`BOAT_THREADS_DATE=YYYYMMDD`、`BOAT_THREADS_FROM_RACE=最初の未投稿レース` を指定します。Bufferでも同じ単日設定を使えます。当日終了後は自動停止します。
 
 1. [MetaのThreads API設定](https://developers.facebook.com/docs/threads/get-started/get-access-tokens-and-permissions)で、投稿先のThreadsユーザー用アクセストークンを取得します。必要な権限は `threads_basic` と `threads_content_publish` です。トークンの有効期限と対象アカウントを確認してください。
 2. Renderの既存 `boat-ai-prediction` サービスの **Environment** に、次を設定します。トークンはチャットやGitHub、原稿、画像に貼らず、Renderの秘密情報欄に直接入力します。
 
-| 変数 | 2026/10/15の平和島・残りレースの設定 |
+| 変数 | 単日の平和島の設定例 |
 |---|---|
 | `BOAT_THREADS_ENABLED` | `1` |
 | `BOAT_THREADS_PROVIDER` | `threads` |
-| `BOAT_THREADS_DATE` | `20261015` |
-| `BOAT_THREADS_FROM_RACE` | `10`（1R・6R・9Rは公開確認済み。追加投稿があれば進める） |
+| `BOAT_THREADS_MODE` | `date` |
+| `BOAT_THREADS_DATE` | `YYYYMMDD`（当日） |
+| `BOAT_THREADS_FROM_RACE` | 最初の未投稿レース（1〜12） |
 | `THREADS_ACCESS_TOKEN` | 上で取得した本人のアクセストークン |
 
 3. この変更を本番へデプロイし、`GET /api/threads_publishing` の設定状態を確認します。設定値不足なら `enabled:false`、投稿失敗・成否不明は各投稿の状態に表示されます。`enabled:true` は起動条件がそろった意味で、投稿の成功やトークンの有効性を表すものではありません。初回の投稿で実際のAPI接続と `published` を確認します。
 4. 準備中にほかのレースも手動で投稿した場合、最初の未投稿レースに `BOAT_THREADS_FROM_RACE` を進めてから有効にします。すでに手動で出したレースを再送しないでください。
 
-対象日が過ぎた設定では投稿しません。別日を運用する場合は、投稿先・対象・開始レースを確認してから対象日を変更してください。無効化するには `BOAT_THREADS_ENABLED=0` にしてデプロイします。
+単日モードは対象日が過ぎた設定では投稿しません。毎開催日の運用は上記の明示的なdaily設定を使用します。無効化するには `BOAT_THREADS_ENABLED=0` にしてデプロイします。
 
 ## 重複と障害時の扱い
 
@@ -72,7 +85,7 @@ Bufferにはまず非公開の下書きを保存します。その内容と投�
 BOAT_AUTO_ENABLED=0 BOAT_THREADS_ENABLED=0 python -m unittest discover -s tests -p 'test_threads_publisher.py'
 ```
 
-このテストは架空の検証用データと偽の投稿先を使い、外部への投稿を実行しません。本番の接続確認は、実際の未投稿レースだけを対象に行います。
+このテストは架空の検証用データと偽の投稿先を使い、外部への投稿を実行しません。本番の読み取りによる接続確認は開始日前にも行います。実投稿の確認は、実際の未投稿レースだけを対象に行います。
 
 公式API仕様：
 - [Buffer APIの利用開始](https://developers.buffer.com/guides/getting-started.html)
