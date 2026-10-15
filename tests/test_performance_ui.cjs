@@ -15,11 +15,11 @@ function stat(roi, wins=1, settled=2, pending=3) {
   return {roi:settled ? roi : null, hit_rate:settled ? wins/settled*100 : null,
     settled, wins, pending, investment, payout, profit:payout-investment};
 }
-function payload(date) {
+function payload(date, stadium='') {
   return {ok:true, legacy_records:0,
     category_stats:{gachi:stat(110,4,10), roman:stat(120), oni:stat(90)},
     automatic_category_stats:{gachi:stat(80,3,10), roman:stat(120), oni:stat(90)},
-    daily:{date, category_stats:{gachi:stat(250), roman:stat(50), oni:stat(300)},
+    daily:{date, stadium, category_stats:{gachi:stat(250), roman:stat(50), oni:stat(300)},
       automatic_category_stats:{gachi:stat(150), roman:stat(0,0), oni:stat(200)}},
     historical:{ok:true, exists:true, phase:'running', enabled:true, total_days:365,
       category_stats:{gachi:stat(999), roman:stat(888), oni:stat(777)}},
@@ -35,6 +35,12 @@ function context(handler, instant='2026-10-14T15:30:00Z') {
       addEventListener(name,callback){this.listeners[name]=callback;}}]));
   elements.get('perfScope').value='automatic';
   elements.get('date').value='20261007';
+  elements.get('stadium').value='06';
+  const venueOptions = new Map([...html.match(/<select id="perfStadium">([\s\S]*?)<\/select>/)[1]
+    .matchAll(/<option value="([^"]*)">([^<]+)<\/option>/g)].map(match=>[match[1],match[2]]));
+  Object.defineProperty(elements.get('perfStadium'),'selectedOptions',{
+    get(){return [{textContent:venueOptions.get(this.value)}];},
+  });
   const calls=[], timers=new Map(); let nextTimer=0;
   const ctx=vm.createContext({Date:Clock,URLSearchParams,AbortController,console:{error(){}},
     document:{getElementById:id=>elements.get(id)},
@@ -44,8 +50,8 @@ function context(handler, instant='2026-10-14T15:30:00Z') {
       calls.push({url,options});
       if(handler){const custom=await handler(url,options);if(custom)return custom;}
       if(url.startsWith('/api/performance?')){
-        const date=new URLSearchParams(url.split('?')[1]).get('date');
-        return response(payload(date));
+        const params=new URLSearchParams(url.split('?')[1]);
+        return response(payload(params.get('date'),params.get('stadium')||''));
       }
       if(url==='/api/historical')return response(payload('20261015').historical);
       throw new Error('Unexpected request '+url);
@@ -130,5 +136,82 @@ async function run(){
   assert.equal(day.elements.get('perfDailyGachiRoi').textContent,before);
   assert.equal(day.elements.get('perfGachiRoi').textContent,'110.0%');
   console.log('PASS: Historical progress refreshes never replace daily or cumulative live performance.');
+
+  const venueDay=context(url=>{
+    const params=new URLSearchParams(url.split('?')[1]);
+    const data=payload(params.get('date'),params.get('stadium')||'');
+    if(params.get('stadium')==='04'){
+      data.daily.automatic_category_stats.gachi=stat(300);
+      data.daily.category_stats.gachi=stat(400);
+    }
+    return response(data);
+  });
+  await venueDay.run('loadPerformanceStatus()');
+  venueDay.elements.get('perfStadium').value='04';
+  await venueDay.elements.get('perfStadium').listeners.change();
+  assert.equal(venueDay.calls.at(-1).url,'/api/performance?date=20261015&stadium=04');
+  assert.equal(venueDay.elements.get('perfDailyGachiRoi').textContent,'300.0%');
+  assert.equal(venueDay.elements.get('perfGachiRoi').textContent,'80.0%');
+  assert.match(venueDay.elements.get('perfDailyNote').textContent,/2026\/10\/15｜平和島/);
+  assert.equal(venueDay.elements.get('stadium').value,'06');
+  venueDay.elements.get('perfScope').value='all';await venueDay.run('loadPerformanceStatus()');
+  assert.equal(venueDay.elements.get('perfDailyGachiRoi').textContent,'400.0%');
+  assert.equal(venueDay.elements.get('perfGachiRoi').textContent,'110.0%');
+  venueDay.elements.get('perfDate').value='2026-10-10';
+  venueDay.run('performanceFollowingToday=false');await venueDay.run('loadPerformanceStatus()');
+  assert.equal(venueDay.elements.get('perfStadium').value,'04');
+  await venueDay.run('showTodayPerformance()');
+  assert.equal(venueDay.calls.at(-1).url,'/api/performance?date=20261015&stadium=04');
+  venueDay.elements.get('perfStadium').value='';await venueDay.elements.get('perfStadium').listeners.change();
+  assert.equal(venueDay.elements.get('perfDailyGachiRoi').textContent,'250.0%');
+  assert.match(venueDay.elements.get('perfDailyNote').textContent,/全場/);
+  console.log('PASS: Venue selection filters the daily report, survives date/type changes and Today, and leaves cumulative totals and prediction selection independent.');
+
+  let finishVenue;
+  const oldVenue=new Promise(resolve=>{finishVenue=resolve;});
+  const venueRace=context(url=>new URLSearchParams(url.split('?')[1]).get('stadium')==='04'?oldVenue:undefined);
+  venueRace.elements.get('perfStadium').value='04';
+  const previousVenue=venueRace.run('loadPerformanceStatus()');
+  const sameVenue=venueRace.run('loadPerformanceStatus()');
+  assert.equal(venueRace.calls.length,1);
+  venueRace.elements.get('perfStadium').value='06';await venueRace.run('loadPerformanceStatus()');
+  const staleVenue=payload('20261015','04');staleVenue.daily.automatic_category_stats.gachi=stat(500);
+  finishVenue(response(staleVenue));await Promise.all([previousVenue,sameVenue]);
+  assert.equal(venueRace.elements.get('perfDailyGachiRoi').textContent,'150.0%');
+  assert.match(venueRace.elements.get('perfDailyNote').textContent,/浜名湖/);
+  assert.equal(venueRace.calls[0].options.signal.aborted,true);
+  console.log('PASS: Requests for the same date/type/venue are shared and a late response for another venue cannot replace the current venue.');
+
+  const unavailableVenue=context(url=>new URLSearchParams(url.split('?')[1]).get('stadium')==='04'?new Promise(()=>{}):undefined);
+  await unavailableVenue.run('loadPerformanceStatus()');
+  unavailableVenue.elements.get('perfStadium').value='04';
+  const venueWait=unavailableVenue.run('loadPerformanceStatus()');
+  assert.equal(unavailableVenue.elements.get('perfDailyGachiRoi').textContent,'-');
+  unavailableVenue.expire(20000);await venueWait;
+  assert.match(unavailableVenue.elements.get('perfDailyNote').textContent,/平和島.*取得できません/);
+  assert.equal(unavailableVenue.elements.get('perfGachiRoi').textContent,'80.0%');
+  assert.doesNotMatch(unavailableVenue.elements.get('perfNote').textContent,/前回確認時点/);
+  console.log('PASS: A venue request timeout clears the previous venue daily data and preserves the all-venue cumulative report.');
+
+  const wrongVenue=context(()=>response(payload('20261015','06')));
+  wrongVenue.elements.get('perfStadium').value='04';await wrongVenue.run('loadPerformanceStatus()');
+  assert.equal(wrongVenue.elements.get('perfDailyGachiRoi').textContent,'-');
+  assert.match(wrongVenue.elements.get('perfNote').textContent,/日次実績を取得できません/);
+  console.log('PASS: Data marked for another venue is never shown under the selected venue.');
+
+  const emptyVenue=context(url=>{
+    const params=new URLSearchParams(url.split('?')[1]);
+    const data=payload(params.get('date'),params.get('stadium')||'');
+    data.daily.automatic_category_stats={gachi:stat(0,0,0,0),roman:stat(0,0,0,0),oni:stat(0,0,0,0)};
+    return response(data);
+  });
+  emptyVenue.elements.get('perfStadium').value='24';await emptyVenue.run('loadPerformanceStatus()');
+  for(const category of ['Gachi','Roman','Oni']){
+    assert.equal(emptyVenue.elements.get('perfDaily'+category+'Roi').textContent,'-');
+    assert.equal(emptyVenue.elements.get('perfDaily'+category+'Settled').textContent,'0R');
+    assert.match(emptyVenue.elements.get('perfDaily'+category+'Summary').textContent,/保存記録がありません/);
+  }
+  assert.match(emptyVenue.elements.get('perfDailyNote').textContent,/大村/);
+  console.log('PASS: A venue with no stored forecasts shows no-record status without inventing losses.');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

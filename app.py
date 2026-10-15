@@ -1152,10 +1152,16 @@ def api_performance():
     except ValueError:
         return jsonify({'ok': False, 'error': '日付を確認してください。'}), 400
 
+    requested_stadium = request.args.get('stadium', '')
+    stadium = requested_stadium.zfill(2) if requested_stadium else ''
+    if stadium and stadium not in STADIUMS:
+        return jsonify({'ok': False, 'error': '開催場を確認してください。'}), 400
+
     rows = load_ledger()
     automatic_rows = [row for row in rows if row.get('prediction_origin') == 'automatic']
     daily_rows = [row for row in rows
-                  if str(row.get('date', '')).replace('/', '').replace('-', '') == date]
+                  if str(row.get('date', '')).replace('/', '').replace('-', '') == date
+                  and (not stadium or str(row.get('stadium', '')).zfill(2) == stadium)]
     response = jsonify({
         'ok': True,
         'stats': ledger_stats(rows),
@@ -1163,6 +1169,8 @@ def api_performance():
         'automatic_category_stats': category_ledger_stats(automatic_rows),
         'daily': {
             'date': date,
+            'stadium': stadium,
+            'venue': STADIUMS.get(stadium, '全場'),
             'category_stats': category_ledger_stats(daily_rows),
             'automatic_category_stats': category_ledger_stats([
                 row for row in daily_rows if row.get('prediction_origin') == 'automatic'

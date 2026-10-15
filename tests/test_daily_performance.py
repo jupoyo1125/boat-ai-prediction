@@ -6,9 +6,9 @@ from unittest import mock
 import app as core
 
 
-def record(date, race, *, automatic=True, settled=True, payout=500, bets=None):
+def record(date, race, *, stadium='07', automatic=True, settled=True, payout=500, bets=None):
     return {
-        'id': f'{date}:{race}', 'date': date, 'stadium': '07', 'race': race,
+        'id': f'{date}:{stadium}:{race}', 'date': date, 'stadium': stadium, 'race': race,
         'performance_version': 2, 'prediction_origin': 'automatic' if automatic else 'manual',
         'settled': settled, 'actual_combo': '123' if settled else '',
         'official_payout': payout,
@@ -67,7 +67,7 @@ class DailyPerformanceChecks(unittest.TestCase):
 
     def test_daily_uses_the_full_ledger_not_only_the_last_hundred_records(self):
         self.rows = [record('20261010', 1)] + [record('20261014', race) for race in range(1, 102)]
-        data = self.client.get('/api/performance?date=20261010').json
+        data = self.client.get('/api/performance?date=20261010&stadium=07').json
         self.assertEqual(len(data['records']), 100)
         self.assertEqual(data['daily']['category_stats']['gachi']['settled'], 1)
 
@@ -110,6 +110,72 @@ class DailyPerformanceChecks(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertFalse(response.json['ok'])
         self.load.assert_not_called()
+
+    def test_selected_venue_filters_only_the_daily_totals_for_both_forecast_types(self):
+        gachi = [{'category': 'gachi', 'bet': '1-2-3'}]
+        self.rows = [
+            record('20261014', 1, stadium='04', payout=900),
+            record('20261014', 2, stadium='04', settled=False),
+            record('2026/10/14', 3, stadium='04', automatic=False, payout=500),
+            record('20261014', 4, stadium=4, payout=200, bets=gachi),
+            record('20261014', 1, stadium='06', payout=200),
+            record('20261013', 1, stadium='04', payout=100),
+            {'date': '20261014', 'stadium': '04', 'investment': 100, 'settled': True},
+            {'date': '20261014', 'stadium': '06', 'investment': 100, 'settled': True},
+        ]
+        all_venues = self.client.get('/api/performance?date=20261014').json
+        response = self.client.get('/api/performance?date=20261014&stadium=04')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        data = response.json
+        daily = data['daily']
+        self.assertEqual((daily['date'], daily['stadium'], daily['venue']), ('20261014', '04', '平和島'))
+        automatic = daily['automatic_category_stats']['gachi']
+        self.assertEqual((automatic['settled'], automatic['wins'], automatic['pending']), (2, 2, 1))
+        self.assertEqual((automatic['investment'], automatic['payout'], automatic['profit']), (200, 1100, 900))
+        self.assertEqual((automatic['roi'], automatic['hit_rate']), (550, 100))
+        self.assertEqual(daily['category_stats']['gachi']['settled'], 3)
+        self.assertEqual(daily['category_stats']['gachi']['payout'], 1600)
+        self.assertEqual(daily['automatic_category_stats']['roman']['roi'], 0)
+        self.assertEqual(daily['automatic_category_stats']['oni']['roi'], 900)
+        self.assertEqual(daily['legacy_records'], 1)
+        for key in ['stats', 'category_stats', 'automatic_category_stats', 'historical', 'records', 'legacy_records']:
+            self.assertEqual(data[key], all_venues[key], key)
+        unpadded = self.client.get('/api/performance?date=20261014&stadium=4').json
+        self.assertEqual(unpadded, data)
+
+    def test_same_numbered_races_in_different_venues_remain_separate_and_duplicates_stay_deduplicated(self):
+        self.rows = [record('20261014', 1, stadium='04', payout=500),
+                     record('2026-10-14', 1, stadium='04', payout=1000),
+                     record('20261014', 1, stadium='06', payout=200)]
+        for stadium, settled, payout in [('', 2, 1200), ('04', 1, 1000), ('06', 1, 200)]:
+            data = self.client.get('/api/performance', query_string={'date': '20261014', 'stadium': stadium}).json
+            for scope in ['category_stats', 'automatic_category_stats']:
+                gachi = data['daily'][scope]['gachi']
+                self.assertEqual((gachi['settled'], gachi['payout']), (settled, payout))
+
+    def test_all_venues_and_a_venue_without_records_are_distinct(self):
+        self.rows = [record('20261014', 1, stadium='04')]
+        for query in ['', '&stadium=']:
+            daily = self.client.get('/api/performance?date=20261014' + query).json['daily']
+            self.assertEqual((daily['stadium'], daily['venue']), ('', '全場'))
+            self.assertEqual(daily['automatic_category_stats']['gachi']['settled'], 1)
+        daily = self.client.get('/api/performance?date=20261014&stadium=24').json['daily']
+        self.assertEqual((daily['stadium'], daily['venue']), ('24', '大村'))
+        for category in daily['automatic_category_stats'].values():
+            self.assertEqual((category['settled'], category['pending'], category['investment']), (0, 0, 0))
+            self.assertIsNone(category['roi'])
+            self.assertIsNone(category['hit_rate'])
+
+    def test_invalid_venues_are_rejected_before_reading_or_writing(self):
+        with mock.patch.object(core, 'save_ledger') as save:
+            for stadium in ['00', '25', '004', '-1', 'abc', '4.0']:
+                with self.subTest(stadium=stadium):
+                    response = self.client.get('/api/performance', query_string={'date': '20261014', 'stadium': stadium})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertFalse(response.json['ok'])
+            self.load.assert_not_called()
+            save.assert_not_called()
 
 
 if __name__ == '__main__':

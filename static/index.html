@@ -339,7 +339,21 @@ AIが現在重視している特徴
 <input id="perfDate" type="date" aria-label="実績の日付">
 <button id="perfToday" class="secondary" onclick="showTodayPerformance()">今日</button>
 </div>
-<p class="performance-period-note" id="perfDailyNote">日本時間の本日分を表示します。日付を変えると、過去の1日分も確認できます。</p>
+<div class="performance-controls">
+<label for="perfStadium">確認する開催場（日次のみ）</label>
+<select id="perfStadium">
+<option value="">全場</option>
+<option value="01">桐生</option><option value="02">戸田</option><option value="03">江戸川</option>
+<option value="04">平和島</option><option value="05">多摩川</option><option value="06">浜名湖</option>
+<option value="07">蒲郡</option><option value="08">常滑</option><option value="09">津</option>
+<option value="10">三国</option><option value="11">びわこ</option><option value="12">住之江</option>
+<option value="13">尼崎</option><option value="14">鳴門</option><option value="15">丸亀</option>
+<option value="16">児島</option><option value="17">宮島</option><option value="18">徳山</option>
+<option value="19">下関</option><option value="20">若松</option><option value="21">芦屋</option>
+<option value="22">福岡</option><option value="23">唐津</option><option value="24">大村</option>
+</select>
+</div>
+<p class="performance-period-note" id="perfDailyNote">日本時間の本日分を表示します。日付と開催場を選ぶと、その対象の1日分を確認できます。</p>
 <div class="performance-categories">
 <section class="performance-category">
 <h4>🎯 ガチガチ</h4>
@@ -375,7 +389,7 @@ AIが現在重視している特徴
 </section>
 <section class="performance-period" aria-labelledby="perfCumulativeTitle">
 <h3 id="perfCumulativeTitle">累計実績</h3>
-<p class="performance-period-note">保存開始から現在までの全日付を集計します。日次の日付を変更しても、累計の期間は変わりません。</p>
+<p class="performance-period-note">保存開始から現在までの全場・全日付を集計します。日次の日付や開催場を変更しても、累計の対象は変わりません。</p>
 <div class="performance-categories">
 <section class="performance-category">
 <h4>🎯 ガチガチ</h4>
@@ -491,6 +505,7 @@ let performanceSequence=0;
 let performanceFollowingToday=true;
 let performanceDisplayedDate='';
 let performanceDisplayedScope='';
+let performanceDisplayedStadium='';
 
 function predictionKey(params=getParams()){
   return [params.date,params.stadium,params.race].join(':');
@@ -802,30 +817,36 @@ async function loadPerformanceStatus(){
   if(performanceFollowingToday||!input.value) input.value=performanceTodayDate();
   const date=input.value.replaceAll('-','');
   const scope=document.getElementById('perfScope').value;
-  const key=date+':'+scope;
+  const stadiumInput=document.getElementById('perfStadium');
+  const stadium=stadiumInput.value;
+  const venue=stadium ? stadiumInput.selectedOptions[0].textContent : '全場';
+  const dailyLabel=input.value.replaceAll('-','/')+'｜'+venue;
+  const key=date+':'+scope+':'+stadium;
   if(performanceRequest?.key===key) return performanceRequest.promise;
   if(performanceRequest) performanceRequest.controller.abort();
   const pending={key,controller:new AbortController(),sequence:++performanceSequence};
   performanceRequest=pending;
   const note=document.getElementById('perfNote');
-  if(performanceDisplayedDate!==date||performanceDisplayedScope!==scope) renderPerformanceCategories('perfDaily',null);
+  if(performanceDisplayedDate!==date||performanceDisplayedScope!==scope||performanceDisplayedStadium!==stadium) renderPerformanceCategories('perfDaily',null);
   if(performanceDisplayedScope!==scope) renderPerformanceCategories('perf',null);
-  document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'の実績を確認しています。';
+  document.getElementById('perfDailyNote').textContent=dailyLabel+'の実績を確認しています。';
   note.textContent='日次・累計の実績を更新しています。';
   pending.promise=(async()=>{
     try{
-      const {response:r,data:x}=await fetchPredictionJson('/api/performance?date='+date,{},20000,pending.controller);
+      const url='/api/performance?date='+date+(stadium?'&stadium='+encodeURIComponent(stadium):'');
+      const {response:r,data:x}=await fetchPredictionJson(url,{},20000,pending.controller);
       if(pending.sequence!==performanceSequence) return;
       if(!r.ok || !x.ok || !x.category_stats) throw new Error(x.error||'運用実績の取得に失敗しました。');
       const automatic=scope==='automatic';
       const cumulative=automatic ? x.automatic_category_stats : x.category_stats;
       renderPerformanceCategories('perf',cumulative);
-      const daily=x.daily?.date===date ? (automatic ? x.daily.automatic_category_stats : x.daily.category_stats) : null;
+      const daily=x.daily?.date===date&&(x.daily.stadium||'')===stadium ? (automatic ? x.daily.automatic_category_stats : x.daily.category_stats) : null;
       renderPerformanceCategories('perfDaily',daily);
       performanceDisplayedDate=date;
       performanceDisplayedScope=scope;
+      performanceDisplayedStadium=stadium;
       if(x.historical) renderHistorical(x.historical);
-      document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'｜'+(automatic?'自動予想':'手動予想を含む保存記録')+'の1日分。日付はレースの開催日です。';
+      document.getElementById('perfDailyNote').textContent=dailyLabel+'｜'+(automatic?'自動予想':'手動予想を含む保存記録')+'の1日分。日付はレースの開催日です。';
       note.textContent='各買い目100円。回収率＝払戻額÷購入額、的中率＝的中レース数÷結果確定レース数。買い目のある結果確定レースだけを集計し、結果待ちは回収率・的中率・収支に含めません。';
       note.textContent+=automatic ? ' 展示後・締切前に保存した自動予想が対象です。' : ' 以前の手動予想も含む累計です。';
       if(Number(x.legacy_records||0)>0) note.textContent+=' 区分情報のない過去の記録は含みません。';
@@ -833,9 +854,9 @@ async function loadPerformanceStatus(){
     }catch(error){
       if(pending.sequence!==performanceSequence||error.name==='AbortError') return;
       console.error('運用実績取得エラー',error);
-      document.getElementById('perfDailyNote').textContent=input.value.replaceAll('-','/')+'の実績を取得できませんでした。';
+      document.getElementById('perfDailyNote').textContent=dailyLabel+'の実績を取得できませんでした。';
       note.textContent='運用実績を取得できませんでした。時間をおいて再読み込みしてください。';
-      if(performanceDisplayedDate===date&&performanceDisplayedScope===scope) note.textContent+=' 表示中の数値は前回確認時点の実績です。';
+      if(performanceDisplayedDate===date&&performanceDisplayedScope===scope&&performanceDisplayedStadium===stadium) note.textContent+=' 表示中の数値は前回確認時点の実績です。';
     }finally{
       if(performanceRequest===pending) performanceRequest=null;
     }
@@ -1634,6 +1655,7 @@ async function batchSettle(allVenues=false){
   loadSelectedSavedPrediction();
 });
 document.getElementById('perfScope').addEventListener('change',loadPerformanceStatus);
+document.getElementById('perfStadium').addEventListener('change',loadPerformanceStatus);
 document.getElementById('perfDate').addEventListener('change',()=>{
   performanceFollowingToday=document.getElementById('perfDate').value===performanceTodayDate();
   loadPerformanceStatus();
