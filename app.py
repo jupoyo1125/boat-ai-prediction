@@ -1867,9 +1867,12 @@ def api_analyze():
     jcd = str(request.args.get('stadium', '15')).zfill(2)
     try:
         race = int(request.args.get('race', '9'))
+        options = {'ranking_only': True} if request.args.get('view') == 'ranking' else {}
         prediction = predict_race(date, jcd, race, request.args.get('fixed', 'none'),
-                                  int(request.args.get('history_days', '30')))
-        return jsonify(prediction)
+                                  int(request.args.get('history_days', '30')), **options)
+        response = jsonify(prediction)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     except requests.Timeout:
         response = jsonify({'ok': False, 'code': 'analysis_timeout',
                             'error': '公式データの取得に時間がかかっています。少し待って「AI予想」を押してください。'})
@@ -1881,7 +1884,8 @@ def api_analyze():
         return jsonify({'ok': False, 'error': str(error)}), 502
 
 
-def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None, hist=None):
+def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None, hist=None,
+                 ranking_only=False):
     source = f'{BASE}racelist?hd={date}&jcd={jcd}&rno={race:02d}'
     before_source = f'{BASE}beforeinfo?hd={date}&jcd={jcd}&rno={race:02d}'
     odds_source = f'{BASE}odds3t?hd={date}&jcd={jcd}&rno={race:02d}'
@@ -1900,7 +1904,8 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
     deadline = time.monotonic() + ANALYSIS_WAIT_SECONDS
     if hist is None:
         hist = historical_stats(jcd, days, history_end)
-    urls = [source, odds_source] + ([before_source] if before is None else [])
+    urls = [source] + ([] if ranking_only else [odds_source])
+    urls += [before_source] if before is None else []
     pages = {url: submit_official_page(url, deadline) for url in urls}
     # Fetch independent inputs concurrently; retain the same scoring logic.
     try:
@@ -1912,7 +1917,7 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         if set(entries) != set(range(1, 7)):
             raise ValueError('6艇の出走表がそろっていません。次回再確認してください。')
         boats = analyze(entries, fixed, before, hist, model=model)
-        odds = parse_odds(await_official_page(pages[odds_source], deadline))
+        odds = {} if ranking_only else parse_odds(await_official_page(pages[odds_source], deadline))
     finally:
         for page in pages.values():
             page.cancel()
@@ -1922,7 +1927,7 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         before
     )
 
-    combos = build_bets(
+    combos = [] if ranking_only else build_bets(
         boats,
         odds,
         fixed,
@@ -1934,7 +1939,7 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         key=lambda x:x['score'],
         reverse=True
     )
-    return {
+    result = {
         'ok':True,'venue':STADIUMS.get(jcd,jcd),'boats':boats,
         'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
         'scenario':scenario(boats,before),'bets':combos,
@@ -1945,6 +1950,10 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         'notice':f'公式出走表・展示・3連単オッズと、前日までの{hist["races"]}レースを使った予想です。',
         'source':source,'before_source':before_source,'odds_source':odds_source
     }
+    if ranking_only:
+        result.update(ranking_only=True, date=date, stadium=jcd, race=race,
+                      notice=f'公式出走表・取得時点の展示情報と、前日までの{hist["races"]}レースに基づく評価順です。オッズと買い目は含みません。')
+    return result
 
 def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at, clock=None):
     clock = clock or (lambda: datetime.now(timezone(timedelta(hours=9))))
