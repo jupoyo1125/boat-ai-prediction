@@ -1992,6 +1992,18 @@ register_historical(sys.modules[__name__])
 
 start_automation(sys.modules[__name__])
 
+from threads_publisher import start as start_threads_publisher, public_status as threads_status
+
+
+@app.get('/api/threads_publishing')
+def api_threads_publishing():
+    response = jsonify(threads_status())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+start_threads_publisher(sys.modules[__name__])
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=8000)
