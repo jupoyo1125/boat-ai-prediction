@@ -204,6 +204,8 @@ class AutoRunner:
                     if saved:
                         frozen.add(race)
                         self.event(date, jcd, race, 'saved', '展示後の予想を保存しました。結果確定後に自動で反映します。')
+                        from threads_publisher import wake
+                        wake()
                     else:
                         self.event(date, jcd, race, 'skipped', '保存済み、または締切直前のため再予想しません。')
                 except Exception:
