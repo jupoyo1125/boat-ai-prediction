@@ -1,0 +1,63 @@
+name: LINE sample reply checks
+
+on:
+  push:
+    branches:
+      - 'codex/line-free-sample-*'
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'line_bot.py'
+      - 'state_store.py'
+      - 'automation.py'
+      - 'tests/**'
+      - '.github/workflows/line-sample-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: line_test
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: line_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BOAT_AUTO_ENABLED: '0'
+      BOAT_HISTORY_RUNNER: '0'
+      BOAT_THREADS_ENABLED: '0'
+      BOAT_LINE_ENABLED: '0'
+      LINE_TEST_DATABASE_URL: postgresql://line_test:local-test-only@localhost:5432/line_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install existing dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile application and LINE module
+        run: python -m py_compile app.py line_bot.py tests/test_line_bot.py
+      - name: Verify Python behavior, LINE and PostgreSQL concurrency
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Verify existing browser behavior
+        run: |
+          node tests/test_batch.cjs
+          node tests/test_automatic_ui.cjs
+          node tests/test_historical_ui.cjs
+          node tests/test_performance_ui.cjs
+          node tests/test_schedule_ui.cjs

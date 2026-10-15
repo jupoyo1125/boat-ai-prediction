@@ -2012,6 +2012,9 @@ def api_threads_publishing():
 
 start_threads_publisher(sys.modules[__name__])
 
+from line_bot import register_line_routes
+register_line_routes(sys.modules[__name__])
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=8000)
