@@ -236,5 +236,186 @@ class ClientTests(unittest.TestCase):
             client.verify_account()
 
 
+def buffer_post(status='draft'):
+    return {'id': 'buffer-post-1', 'status': status, 'text': tp.caption(forecast()),
+            'sentAt': '2026-10-15T10:21:00+09:00' if status == 'sent' else None,
+            'externalLink': 'https://www.threads.com/@ton123kyotei456/post/example',
+            'schedulingType': 'automatic', 'assets': [], 'metadata': {'threadCount': 0},
+            'channel': {'id': 'channel-1', 'service': 'threads', 'name': tp.USERNAME}}
+
+
+class BufferClientTests(unittest.TestCase):
+    def setUp(self):
+        from buffer_publisher import BufferClient
+        self.response = mock.Mock(status_code=200)
+        self.session = mock.Mock()
+        self.session.request.return_value = self.response
+        self.client = BufferClient('private-buffer-key', 'channel-1', self.session)
+
+    def test_configuration_requires_explicit_provider_and_channel(self):
+        with mock.patch.dict(os.environ, {
+            'BOAT_THREADS_ENABLED': '1', 'BOAT_THREADS_DATE': '20261015',
+            'BOAT_THREADS_FROM_RACE': '10', 'BOAT_THREADS_PROVIDER': 'buffer',
+            'BUFFER_API_KEY': 'private-buffer-key', 'THREADS_ACCESS_TOKEN': 'unused',
+        }, clear=True):
+            self.assertIsNone(tp.configuration())
+            os.environ['BOAT_BUFFER_CHANNEL_ID'] = 'channel-1'
+            config = tp.configuration()
+            self.assertEqual((config.provider, config.channel_id), ('buffer', 'channel-1'))
+            self.assertNotIn('private-buffer-key', repr(config))
+            os.environ['BOAT_THREADS_PROVIDER'] = 'unknown'
+            self.assertIsNone(tp.configuration())
+
+    def test_channel_identity_connection_and_header_are_checked(self):
+        channel = dict(buffer_post()['channel'], isDisconnected=False,
+                       isLocked=False, isQueuePaused=False)
+        self.response.json.return_value = {'data': {'channel': channel}}
+        self.client.verify_account()
+        args, kwargs = self.session.request.call_args
+        self.assertEqual(args, ('POST', 'https://api.buffer.com'))
+        self.assertEqual(kwargs['headers']['Authorization'], 'Bearer private-buffer-key')
+        self.assertNotIn('private-buffer-key', str(kwargs['json']))
+        self.assertFalse(kwargs['allow_redirects'])
+        for changes in [{'name': 'another_user'}, {'service': 'instagram'},
+                        {'id': 'another-channel'}, {'isQueuePaused': True}]:
+            self.response.json.return_value = {'data': {'channel': dict(channel, **changes)}}
+            with self.assertRaises(tp.ThreadsError):
+                self.client.verify_account()
+
+    def test_only_a_private_draft_can_be_created_during_preparation(self):
+        self.response.json.return_value = {'data': {'createPost': {'post': buffer_post()}}}
+        self.assertEqual(self.client.create(tp.caption(forecast())), 'buffer-post-1')
+        values = self.session.request.call_args.kwargs['json']['variables']['input']
+        self.assertTrue(values['saveToDraft'])
+        self.assertEqual(values['mode'], 'addToQueue')
+        self.assertEqual(values['assets'], [])
+        self.response.json.return_value['data']['createPost']['post']['status'] = 'scheduled'
+        with self.assertRaises(tp.WrongAccount):
+            self.client.create(tp.caption(forecast()))
+
+    def test_publication_edits_the_same_draft_for_automatic_share_now(self):
+        self.response.json.return_value = {'data': {'editPost': {'post': buffer_post('sending')}}}
+        self.client.publish('buffer-post-1', tp.caption(forecast()))
+        payload = self.session.request.call_args.kwargs['json']
+        self.assertIn('editPost', payload['query'])
+        values = payload['variables']['input']
+        self.assertEqual(values['id'], 'buffer-post-1')
+        self.assertEqual(values['mode'], 'shareNow')
+        self.assertFalse(values['saveToDraft'])
+        self.assertEqual(values['schedulingType'], 'automatic')
+
+    def test_changed_drafts_and_graphql_errors_fail_closed_without_logging_bodies(self):
+        post = buffer_post()
+        self.response.json.return_value = {'data': {'post': post}}
+        self.client.validate_draft(post['id'], post['text'])
+        post['text'] += ' unexpected content'
+        with self.assertRaises(tp.ThreadsError):
+            self.client.validate_draft(post['id'], tp.caption(forecast()))
+        self.response.json.return_value = {'errors': [{'message': 'private-buffer-key'}]}
+        with self.assertRaises(tp.ThreadsError) as caught:
+            self.client.publication('buffer-post-1')
+        self.assertNotIn('private-buffer-key', str(caught.exception))
+
+    def test_withdrawal_preserves_the_post_as_a_draft(self):
+        self.response.json.return_value = {'data': {'editPost': {'post': buffer_post()}}}
+        self.client.withdraw('buffer-post-1')
+        payload = self.session.request.call_args.kwargs['json']
+        self.assertIn('editPost', payload['query'])
+        self.assertNotIn('deletePost', payload['query'])
+        self.assertEqual(payload['variables']['input'], {'id': 'buffer-post-1', 'saveToDraft': True})
+
+
+class BufferFlowTests(unittest.TestCase):
+    def setUp(self):
+        from buffer_publisher import BufferClient
+        self.now = datetime(2026, 10, 15, 10, 20, tzinfo=tp.JST)
+        self.config = tp.Config('20261015', 2, 'unused-key', 'buffer', 'channel-1')
+        self.row = forecast()
+        self.store = MemoryStore()
+        self.client = mock.Mock()
+        self.client.create.return_value = 'buffer-post-1'
+        self.client.publish.return_value = 'buffer-post-1'
+        self.client.publication.return_value = buffer_post('sending')
+        self.client.permalink.side_effect = BufferClient.permalink
+        self.core = mock.Mock()
+        self.core.load_ledger.return_value = [self.row]
+        patch = mock.patch('automation.configured', return_value=True)
+        patch.start(); self.addCleanup(patch.stop)
+        self.publisher = tp.Publisher(self.core, self.config, self.store, self.client,
+                                      clock=lambda: self.now)
+
+    def state(self):
+        return self.store.read()['posts'][self.row['id']]
+
+    def test_acceptance_is_confirmed_before_being_reported_as_published(self):
+        self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'submitted')
+        self.client.publish.assert_called_once_with('buffer-post-1', tp.caption(self.row))
+        self.now += timedelta(seconds=20)
+        self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'submitted')
+        self.now += timedelta(seconds=60)
+        self.client.publication.return_value = buffer_post('sent')
+        self.publisher.run_once(); self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'published')
+        self.assertIn('/@ton123kyotei456/post/', self.state()['permalink'])
+        self.client.publish.assert_called_once()
+
+    def test_multiple_workers_share_one_confirmation_lease(self):
+        self.publisher.run_once()
+        self.now += timedelta(seconds=20)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            values = list(pool.map(lambda _: self.store.claim_confirmation(self.config, self.now), range(2)))
+        self.assertEqual(sum(value is not None for value in values), 1)
+
+    def test_pending_forecast_returns_to_draft_when_the_deadline_approaches(self):
+        self.publisher.run_once()
+        self.now = tp.timestamp(self.row['scheduled_deadline']) - tp.MIN_LEAD
+        self.client.publication.return_value = buffer_post('scheduled')
+        self.publisher.run_once()
+        self.client.withdraw.assert_called_once_with('buffer-post-1')
+        self.assertEqual(self.state()['state'], 'expired')
+        self.client.publish.assert_called_once()
+
+    def test_withdrawal_timeout_does_not_resubmit(self):
+        self.publisher.run_once()
+        self.now = tp.timestamp(self.row['scheduled_deadline']) - tp.MIN_LEAD
+        self.client.publication.return_value = buffer_post('scheduled')
+        self.client.withdraw.side_effect = TimeoutError()
+        self.publisher.run_once(); self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'uncertain')
+        self.client.publish.assert_called_once()
+
+    def test_publication_timeout_is_not_retried_after_restart(self):
+        self.client.publish.side_effect = TimeoutError('private-buffer-key')
+        self.publisher.run_once(); self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'uncertain')
+        self.assertNotIn('private-buffer-key', str(self.state()))
+        self.client.publish.assert_called_once()
+
+    def test_buffer_error_is_not_published_and_not_recreated(self):
+        self.publisher.run_once()
+        self.now += timedelta(seconds=20)
+        self.client.publication.return_value = buffer_post('error')
+        self.publisher.run_once(); self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'error')
+        self.client.create.assert_called_once()
+        self.client.publish.assert_called_once()
+
+    def test_sent_after_deadline_is_reported_as_late(self):
+        self.publisher.run_once()
+        self.now = tp.timestamp(self.row['scheduled_deadline']) + timedelta(seconds=10)
+        self.client.publication.return_value = dict(buffer_post('sent'), sentAt=self.now.isoformat())
+        self.publisher.run_once()
+        self.assertEqual(self.state()['state'], 'published_late')
+
+    def test_changing_provider_never_reuses_another_providers_prepared_post(self):
+        old_config = tp.Config('20261015', 2, 'unused-key')
+        self.store.enqueue([tp.candidate(self.row, old_config, self.now)])
+        self.publisher.run_once()
+        self.client.create.assert_not_called()
+        self.client.publish.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
