@@ -218,6 +218,164 @@ class PublisherTests(unittest.TestCase):
         self.client.create.assert_called_once_with(first['text'])
 
 
+class DailyPublisherTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 15, 17, tzinfo=tp.JST)
+        self.env = {
+            'BOAT_THREADS_ENABLED': '1', 'BOAT_THREADS_MODE': 'daily',
+            'BOAT_THREADS_START_DATE': '20261016', 'BOAT_THREADS_UNTIL_DATE': '20261017',
+            'BOAT_THREADS_FROM_RACE': '1', 'THREADS_ACCESS_TOKEN': 'daily-private-test-token',
+        }
+        environment = mock.patch.dict(os.environ, self.env, clear=True)
+        environment.start(); self.addCleanup(environment.stop)
+        configured = mock.patch('automation.configured', return_value=True)
+        configured.start(); self.addCleanup(configured.stop)
+        clock = mock.patch('threads_publisher.now_jst', side_effect=lambda: self.now)
+        clock.start(); self.addCleanup(clock.stop)
+        self.core = mock.Mock()
+        self.store = MemoryStore()
+        self.client = mock.Mock()
+        self.client.create.side_effect = lambda _: str(self.client.create.call_count)
+        self.client.publish.side_effect = lambda container: 'post-' + container
+        self.client.permalink.side_effect = lambda post: (
+            f'https://www.threads.com/@{tp.USERNAME}/post/{post}')
+
+    @staticmethod
+    def row(date, race):
+        row = forecast()
+        day = datetime.strptime(date, '%Y%m%d').strftime('%Y-%m-%d')
+        row.update(id=f'auto:{date}:04:{race:02d}', date=date, race=race)
+        for key in ('prediction_saved_at', 'exhibition_detected_at', 'scheduled_deadline'):
+            row[key] = row[key].replace('2026-10-15', day)
+        return row
+
+    def publisher(self, config=None):
+        return tp.Publisher(self.core, config or tp.configuration(self.now), self.store,
+                            self.client, clock=lambda: self.now)
+
+    def test_daily_scope_requires_a_valid_start_and_all_twelve_races(self):
+        for changes in [
+            {'BOAT_THREADS_START_DATE': ''}, {'BOAT_THREADS_START_DATE': '20260230'},
+            {'BOAT_THREADS_UNTIL_DATE': '20261014'}, {'BOAT_THREADS_UNTIL_DATE': 'forever'},
+            {'BOAT_THREADS_MODE': 'unknown'}, {'BOAT_THREADS_FROM_RACE': '12'},
+        ]:
+            with self.subTest(changes=changes), mock.patch.dict(os.environ, changes):
+                self.assertIsNone(tp.configuration(self.now))
+        config = tp.configuration(self.now)
+        self.assertEqual((config.mode, config.start_date, config.until_date, config.first_race),
+                         ('daily', '20261016', '20261017', 1))
+        self.assertNotIn(self.env['THREADS_ACCESS_TOKEN'], repr(config))
+
+    def test_a_missing_daily_mode_does_not_expand_a_single_day_setting(self):
+        os.environ.pop('BOAT_THREADS_MODE')
+        os.environ['BOAT_THREADS_DATE'] = '20261015'
+        config = tp.configuration(self.now)
+        self.assertEqual(config.mode, 'date')
+        self.assertFalse(tp.scope_active(config, self.now + timedelta(days=1)))
+
+    def test_daily_scope_rolls_over_at_japanese_midnight(self):
+        utc = datetime(2026, 10, 15, 14, 59, 59, tzinfo=tp.timezone.utc)
+        before = tp.configuration(utc)
+        after = tp.configuration(utc + timedelta(seconds=1))
+        self.assertEqual((before.date, after.date), ('20261015', '20261016'))
+        self.assertFalse(tp.scope_active(before, utc))
+        self.assertTrue(tp.scope_active(after, utc + timedelta(seconds=1)))
+
+    def test_waiting_scope_only_checks_connection_and_never_loads_forecasts(self):
+        publisher = self.publisher()
+        publisher.probe_connection()
+        publisher.run_once()
+        self.client.verify_account.assert_called_once()
+        self.core.load_ledger.assert_not_called()
+        self.client.create.assert_not_called()
+        self.client.publish.assert_not_called()
+        with mock.patch.object(tp.PostStore, 'read') as read:
+            status = tp.public_status()
+        read.assert_not_called()
+        self.assertTrue(status['armed'])
+        self.assertFalse(status['enabled'])
+        self.assertEqual(status['phase'], 'scheduled')
+        self.assertEqual(status['connection']['state'], 'connected')
+        self.assertEqual(status['from_race'], 1)
+        self.assertNotIn(self.env['THREADS_ACCESS_TOKEN'], str(status))
+
+    def test_connection_errors_are_redacted_and_probes_have_a_retry_interval(self):
+        self.client.verify_account.side_effect = RuntimeError(self.env['THREADS_ACCESS_TOKEN'])
+        publisher = self.publisher()
+        publisher.probe_connection()
+        self.now += timedelta(seconds=20)
+        publisher.probe_connection()
+        self.client.verify_account.assert_called_once()
+        status = tp.public_status()
+        self.assertEqual(status['connection']['state'], 'error')
+        self.assertNotIn(self.env['THREADS_ACCESS_TOKEN'], str(status))
+        self.now += timedelta(minutes=15)
+        publisher.probe_connection()
+        self.assertEqual(self.client.verify_account.call_count, 2)
+        self.client.create.assert_not_called()
+        self.client.publish.assert_not_called()
+
+    def test_healthy_idle_connection_is_not_rechecked_every_twenty_seconds(self):
+        publisher = self.publisher()
+        publisher.probe_connection()
+        for _ in range(10):
+            self.now += timedelta(seconds=20)
+            publisher.probe_connection()
+        self.client.verify_account.assert_called_once()
+        self.now += timedelta(hours=1)
+        publisher.probe_connection()
+        self.assertEqual(self.client.verify_account.call_count, 2)
+
+    def test_daily_worker_waits_then_publishes_each_days_races_once_without_restart(self):
+        self.core.load_ledger.return_value = [
+            self.row(date, race) for date in ('20261015', '20261016', '20261017', '20261018')
+            for race in (1, 12)]
+        times = iter([
+            datetime(2026, 10, 16, 10, 20, tzinfo=tp.JST),
+            datetime(2026, 10, 16, 23, 59, 50, tzinfo=tp.JST),
+            datetime(2026, 10, 17, 0, 0, 10, tzinfo=tp.JST),
+            datetime(2026, 10, 17, 10, 20, tzinfo=tp.JST),
+            datetime(2026, 10, 17, 10, 21, tzinfo=tp.JST),
+            datetime(2026, 10, 18, 7, tzinfo=tp.JST),
+        ])
+        def wait(_):
+            self.now = next(times)
+        real_publisher = tp.Publisher
+        def build(core, config, clock):
+            return real_publisher(core, config, self.store, self.client, clock)
+        with mock.patch.object(tp, 'Publisher', side_effect=build):
+            tp.run_worker(self.core, clock=lambda: self.now, wait=wait)
+        self.assertEqual(self.client.publish.call_count, 4)
+        self.assertEqual(self.core.load_ledger.call_count, 3)
+        self.assertEqual(set(self.store.read()['posts']), {
+            f'auto:{date}:04:{race:02d}' for date in ('20261016', '20261017') for race in (1, 12)})
+        self.assertTrue(all(entry['state'] == 'published'
+                            for entry in self.store.read()['posts'].values()))
+        self.assertFalse(tp.public_status()['armed'])
+        self.assertEqual(tp.public_status()['phase'], 'expired')
+
+    def test_a_day_without_heiwajima_forecasts_produces_no_post(self):
+        self.now = datetime(2026, 10, 16, 10, 20, tzinfo=tp.JST)
+        row = self.row('20261016', 1)
+        row.update(stadium='05', id='auto:20261016:05:01')
+        self.core.load_ledger.return_value = [row, self.row('20261015', 1)]
+        self.publisher().run_once()
+        self.assertEqual(self.store.read()['posts'], {})
+        self.client.create.assert_not_called()
+        self.client.publish.assert_not_called()
+
+    def test_buffer_daily_configuration_keeps_credentials_private(self):
+        with mock.patch.dict(os.environ, {
+            'BOAT_THREADS_PROVIDER': 'buffer', 'BUFFER_API_KEY': 'private-buffer-test-key',
+            'BOAT_BUFFER_CHANNEL_ID': 'channel-1',
+        }):
+            config = tp.configuration(self.now)
+            self.assertEqual((config.provider, config.mode, config.channel_id),
+                             ('buffer', 'daily', 'channel-1'))
+            self.assertNotIn('private-buffer-test-key', repr(config))
+            self.assertNotIn('private-buffer-test-key', str(tp.public_status()))
+
+
 class ClientTests(unittest.TestCase):
     def test_token_stays_in_header_and_target_account_is_checked(self):
         response = mock.Mock(status_code=200)

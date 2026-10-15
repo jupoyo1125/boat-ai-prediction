@@ -27,6 +27,9 @@ LEASE = timedelta(seconds=90)
 _wake = threading.Event()
 _start_lock = threading.Lock()
 _runner = None
+_connection_lock = threading.Lock()
+_connection_config = None
+_connection = {'state': 'unchecked', 'checked_at': None}
 
 
 def now_jst():
@@ -40,18 +43,37 @@ class Config:
     token: str = field(repr=False)
     provider: str = 'threads'
     channel_id: str = ''
+    mode: str = 'date'
+    start_date: str = ''
+    until_date: str = ''
 
 
-def configuration():
+def valid_date(value):
+    if not re.fullmatch(r'\d{8}', value):
+        raise ValueError('invalid date')
+    datetime.strptime(value, '%Y%m%d')
+    return value
+
+
+def configuration(now=None):
     if os.getenv('BOAT_THREADS_ENABLED') != '1':
         return None
-    date = os.getenv('BOAT_THREADS_DATE', '')
+    now = now or now_jst()
+    mode = os.getenv('BOAT_THREADS_MODE', 'date')
     try:
-        if not re.fullmatch(r'\d{8}', date):
+        if mode not in ('date', 'daily'):
             return None
-        datetime.strptime(date, '%Y%m%d')
+        start_date = until_date = ''
+        if mode == 'daily':
+            start_date = valid_date(os.getenv('BOAT_THREADS_START_DATE', ''))
+            until_date = os.getenv('BOAT_THREADS_UNTIL_DATE', '')
+            if until_date and valid_date(until_date) < start_date:
+                return None
+            date = now.astimezone(JST).strftime('%Y%m%d')
+        else:
+            date = valid_date(os.getenv('BOAT_THREADS_DATE', ''))
         first = int(os.getenv('BOAT_THREADS_FROM_RACE', ''))
-        if not 1 <= first <= 12:
+        if not 1 <= first <= 12 or (mode == 'daily' and first != 1):
             return None
     except (TypeError, ValueError):
         return None
@@ -60,12 +82,37 @@ def configuration():
         token = os.getenv('BUFFER_API_KEY', '').strip()
         channel = os.getenv('BOAT_BUFFER_CHANNEL_ID', '').strip()
         if token and channel and len(channel) <= 256:
-            return Config(date, first, token, provider, channel)
+            return Config(date, first, token, provider, channel, mode, start_date, until_date)
         return None
     if provider != 'threads':
         return None  # Never fall back to a different account or provider.
     token = os.getenv('THREADS_ACCESS_TOKEN', '').strip()
-    return Config(date, first, token) if token else None
+    return Config(date, first, token, provider, '', mode, start_date, until_date) if token else None
+
+
+def scope_active(config, now):
+    date = now.astimezone(JST).strftime('%Y%m%d')
+    return (date == config.date and (not config.start_date or config.start_date <= date)
+            and (not config.until_date or date <= config.until_date))
+
+
+def scope_finished(config, now):
+    date = now.astimezone(JST).strftime('%Y%m%d')
+    return ((config.mode == 'date' and config.date < date)
+            or bool(config.until_date and config.until_date < date))
+
+
+def connection_status(config):
+    with _connection_lock:
+        return dict(_connection) if config == _connection_config else {
+            'state': 'unchecked', 'checked_at': None}
+
+
+def record_connection(config, state, now):
+    global _connection_config, _connection
+    with _connection_lock:
+        _connection_config = config  # Config never exposes its token in repr/status.
+        _connection = {'state': state, 'checked_at': now.isoformat(timespec='seconds')}
 
 
 def timestamp(value):
@@ -134,7 +181,7 @@ def caption(row):
 def candidate(row, config, now):
     try:
         race = int(row.get('race', 0))
-        if (now.strftime('%Y%m%d') != config.date or row.get('date') != config.date
+        if (not scope_active(config, now) or row.get('date') != config.date
                 or row.get('stadium') != STADIUM or not config.first_race <= race <= 12
                 or row.get('id') != f'auto:{config.date}:{STADIUM}:{race:02d}'
                 or row.get('prediction_origin') != 'automatic' or row.get('settled')
@@ -309,6 +356,8 @@ class Publisher:
     def __init__(self, core, config, store=None, client=None, clock=now_jst):
         self.core, self.config, self.clock = core, config, clock
         self.store = store or PostStore()
+        self.connection_checked_at = None
+        self.connection_ok = False
         if client is not None:
             self.client = client
         elif config.provider == 'buffer':
@@ -317,11 +366,35 @@ class Publisher:
         else:
             self.client = ThreadsClient(config.token)
 
+    def verify_connection(self):
+        record_connection(self.config, 'checking', self.clock())
+        try:
+            self.client.verify_account()
+        except Exception:
+            self.connection_checked_at = self.clock()
+            self.connection_ok = False
+            record_connection(self.config, 'error', self.connection_checked_at)
+            raise
+        self.connection_checked_at = self.clock()
+        self.connection_ok = True
+        record_connection(self.config, 'connected', self.connection_checked_at)
+
+    def probe_connection(self):
+        """Read-only account check, including while waiting for the start date."""
+        interval = timedelta(hours=1) if self.connection_ok else timedelta(minutes=15)
+        if (self.connection_checked_at is not None
+                and self.clock() - self.connection_checked_at < interval):
+            return
+        try:
+            self.verify_connection()
+        except Exception:
+            pass  # The public report is static; never include credential-bearing errors.
+
     @strict_state_reads
     def run_once(self):
         from automation import configured
         now = self.clock()
-        if now.strftime('%Y%m%d') != self.config.date or not configured():
+        if not scope_active(self.config, now) or not configured():
             return
         if self.config.provider == 'buffer':
             self.confirm_buffer()
@@ -330,7 +403,7 @@ class Publisher:
         self.store.enqueue(entries)
         while entry := self.store.claim(self.config, self.clock()):
             try:
-                self.client.verify_account()
+                self.verify_connection()
                 container = entry.get('container_id') or self.client.create(entry['text'])
                 if self.config.provider == 'buffer':
                     self.client.validate_draft(container, entry['text'])
@@ -409,38 +482,73 @@ def wake():
     _wake.set()
 
 
+def run_worker(core, clock=now_jst, wait=None):
+    """Re-resolve today's scope without restarting the service at midnight."""
+    from automation import configured
+    wait = wait or _wake.wait
+    publisher = None
+    while True:
+        now = clock()
+        config = configuration(now)
+        if (not config or scope_finished(config, now)
+                or (config.mode == 'date' and not scope_active(config, now))):
+            return
+        _wake.clear()
+        try:
+            if configured():
+                changed = publisher is None or publisher.config != config
+                if changed:
+                    publisher = Publisher(core, config, clock=clock)
+                # Check credentials once on startup, then during monitoring hours.
+                if changed or 7 <= now.hour < 23:
+                    publisher.probe_connection()
+                if scope_active(config, now) and 7 <= now.hour < 23:
+                    publisher.run_once()
+        except Exception as error:
+            core.app.logger.error('Threads publisher paused (%s)', type(error).__name__)
+        wait(20)
+
+
 def start(core):
     global _runner
     from automation import configured
-    config = configuration()
-    if not config or config.date != now_jst().strftime('%Y%m%d') or not configured():
+    now = now_jst()
+    config = configuration(now)
+    if (not config or scope_finished(config, now) or not configured()
+            or (config.mode == 'date' and not scope_active(config, now))):
         return
     with _start_lock:
         if _runner and _runner.is_alive():
             return
-        def run():
-            publisher = Publisher(core, config)
-            while now_jst().strftime('%Y%m%d') == config.date:
-                _wake.clear()
-                try:
-                    publisher.run_once()
-                except Exception as error:
-                    core.app.logger.error('Threads publisher paused (%s)', type(error).__name__)
-                _wake.wait(20)
-        _runner = threading.Thread(target=run, daemon=True, name='threads-publisher')
+        _runner = threading.Thread(target=run_worker, args=(core,), daemon=True,
+                                   name='threads-publisher')
         _runner.start()
 
 
 def public_status():
-    config = configuration()
+    now = now_jst()
+    config = configuration(now)
     from automation import configured
-    enabled = bool(config and config.date == now_jst().strftime('%Y%m%d') and configured())
+    ready = bool(config and configured())
+    enabled = bool(ready and scope_active(config, now))
+    armed = bool(ready and not scope_finished(config, now)
+                 and (config.mode == 'daily' or enabled))
+    phase = ('watching' if enabled else 'scheduled' if armed else
+             'expired' if config and scope_finished(config, now) else 'disabled')
     result = {'ok': True, 'enabled': enabled, 'date': config.date if config else None,
               'stadium': STADIUM, 'username': USERNAME,
               'provider': config.provider if config else os.getenv('BOAT_THREADS_PROVIDER', 'threads'),
-              'from_race': config.first_race if config else None}
+              'from_race': config.first_race if config else None,
+              'mode': config.mode if config else os.getenv('BOAT_THREADS_MODE', 'date'),
+              'armed': armed, 'phase': phase,
+              'start_date': (config.start_date or config.date) if config else None,
+              'until_date': (config.until_date or (config.date if config.mode == 'date' else None))
+                            if config else None,
+              'connection': connection_status(config) if config else
+                            {'state': 'unchecked', 'checked_at': None}}
     if not enabled:
-        result['message'] = '投稿用接続・対象日・開始レースの設定待ち、または対象日終了です。'
+        result['message'] = ('開始日まで待機しています。平和島の開催日は全12Rが対象です。'
+                             if armed else '投稿設定が無効、設定不足、または対象期間外です。')
         return result
     try:
         state = PostStore().read()
@@ -450,5 +558,6 @@ def public_status():
                            for entry in state['posts'].values()
                            if entry['key'].startswith(f'auto:{config.date}:{STADIUM}:')]
     except Exception:
-        result.update(ok=False, enabled=False, message='投稿記録の保存先に接続できません。')
+        result.update(ok=False, enabled=False, armed=False, phase='error',
+                      message='投稿記録の保存先に接続できません。')
     return result
