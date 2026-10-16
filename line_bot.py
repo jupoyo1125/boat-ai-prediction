@@ -40,8 +40,8 @@ COMMANDS = {'買い目', '予想', '今日の予想', '本日の予想', '今日
             'ガチガチの買い目', 'ロマン砲の買い目', '鬼しぼりの買い目'}
 HELP = ('Golden Racer｜無料お試し\n'
         '「買い目」と送ると、本日のお試し1レースの3タイプをお届けします。\n'
-        'サンプルは全員共通で、当日最初の予想リクエスト時に'
-        '締切前の保存済み予想から1レース固定します。\n'
+        '対象レースは運営が日付ごとに指定し、全員共通の1日1レースです。\n'
+        '指定レースの予想が保存されるまで準備中となります。\n'
         '締切直前・締切後は配信を終了します。全レースの指定には対応しません。\n'
         '20歳以上の方向けの参考情報で、的中や利益を保証するものではありません。')
 
@@ -77,6 +77,20 @@ def timestamp(value):
     if parsed.tzinfo is None:
         raise ValueError('timezone required')
     return parsed.astimezone(JST)
+
+
+def designated_race(venues, now):
+    """Read the operator's dated target; never infer a substitute race."""
+    value = os.getenv('BOAT_LINE_SAMPLE_RACE', '').strip()
+    match = re.fullmatch(r'([0-9]{8}):([0-9]{2}):(0?[1-9]|1[0-2])', value)
+    if match is None:
+        return None
+    date, stadium, race = match.groups()
+    if date != now.astimezone(JST).strftime('%Y%m%d') or stadium not in venues:
+        return None
+    race = int(race)
+    return {'id': f'auto:{date}:{stadium}:{race:02d}', 'date': date,
+            'stadium': stadium, 'race': race, 'venue': venues[stadium]}
 
 
 def valid_signature(body, signature, secret):
@@ -247,17 +261,26 @@ class SampleBot:
                 return HELP, None
         now = self.clock().astimezone(JST)
         sample = self.store.sample(now)
+        target = None if sample is not None else designated_race(self.core.STADIUMS, now)
+        if sample is None and target is None:
+            return ('本日の無料お試しレースは運営側で準備中です。'
+                    '対象レースの指定後に、もう一度「買い目」と送ってください。'), None
+        if (sample is None and requested is not None
+                and requested != (target['stadium'], target['race'])):
+            return (f'本日のお試しは{sample_label(target)}の1レースです。'
+                    '「買い目」と送ると3タイプをまとめて確認できます。'), None
         rows = self.core.load_ledger()
         valid = {row['id']: candidate for row in rows
                  if (candidate := frozen_sample(row, self.core.STADIUMS, now)) is not None}
         if sample is None:
-            candidates = [value for value in valid.values()
-                          if now < timestamp(value['deadline']) - MIN_LEAD]
-            if not candidates:
-                return ('本日のお試し予想は準備中、または配信可能な予想がありません。'
+            candidate = valid.get(target['id'])
+            if candidate is None:
+                return (f'本日のお試しは{sample_label(target)}です。'
+                        '指定レースの予想は準備中、または配信可能な予想がありません。'
                         '時間をおいて「買い目」と送ってください。'), None
-            candidate = min(candidates, key=lambda value: (
-                value['deadline'], value['saved_at'], value['id']))
+            if now >= timestamp(candidate['deadline']) - MIN_LEAD:
+                return (f'本日のお試しは{sample_label(target)}です。'
+                        '締切直前・締切後のため配信を終了しました。'), None
             sample = self.store.pin(candidate, now)
         if (sample.get('date') != now.strftime('%Y%m%d')
                 or now >= timestamp(sample['deadline']) - MIN_LEAD):
@@ -391,3 +414,4 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
         except Exception:
             core.app.logger.warning('LINE webhook unavailable; check configuration or storage')
             return jsonify({'ok': False, 'code': 'line_unavailable'}), 503
+

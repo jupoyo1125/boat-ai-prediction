@@ -61,6 +61,9 @@ class MemoryStore(lb.LineStore):
 
 class LineBotTests(unittest.TestCase):
     def setUp(self):
+        selection_env = mock.patch.dict(os.environ, {'BOAT_LINE_SAMPLE_RACE': '20261015:04:01'})
+        selection_env.start()
+        self.addCleanup(selection_env.stop)
         self.now = datetime(2026, 10, 15, 10, 10, tzinfo=lb.JST)
         self.row = forecast()
         self.rows = [self.row]
@@ -119,6 +122,113 @@ class LineBotTests(unittest.TestCase):
         self.row['bets'] = [bet for bet in self.row['bets'] if bet['category'] != 'oni']
         text, _ = self.bot.answer('鬼しぼり')
         self.assertIn('鬼しぼり｜0点\n見送り（買い目なし）', text)
+
+    def test_operator_target_is_selected_even_when_another_race_closes_earlier(self):
+        target = forecast(stadium='15', race=2, deadline='11:00:00')
+        self.rows.append(target)
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:15:02'
+        text, deadline = self.bot.answer('買い目')
+        self.assertIn('10/15 丸亀2R', text)
+        self.assertNotIn('平和島1R', text)
+        self.assertEqual(deadline, lb.timestamp(target['scheduled_deadline']))
+        self.assertEqual(self.store.sample(self.now)['id'], target['id'])
+
+    def test_missing_target_does_not_automatically_disclose_an_available_race(self):
+        os.environ.pop('BOAT_LINE_SAMPLE_RACE')
+        text, deadline = self.bot.answer('買い目')
+        self.assertIn('運営側で準備中', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(deadline)
+        self.assertIsNone(self.store.sample(self.now))
+        self.core.load_ledger.assert_not_called()
+
+    def test_invalid_stale_or_future_operator_targets_do_not_select_a_substitute(self):
+        values = ['', '平和島1R', '20261015:04:0', '20261015:04:13',
+                  '20261015:99:01', '20261015:4:01', '20261014:04:01',
+                  '20261016:04:01', '20260230:04:01',
+                  '20261015:04:01 trailing', '２０２６１０１５:04:01']
+        for value in values:
+            with self.subTest(value=value):
+                os.environ['BOAT_LINE_SAMPLE_RACE'] = value
+                text, deadline = self.bot.answer('買い目')
+                self.assertIn('運営側で準備中', text)
+                self.assertNotIn('ガチガチ｜', text)
+                self.assertIsNone(deadline)
+                self.assertIsNone(self.store.sample(self.now))
+
+    def test_designated_race_accepts_unpadded_race_and_uses_jst_date(self):
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = ' 20261015:04:1 '
+        utc_now = datetime.fromisoformat('2026-10-14T15:10:00+00:00')
+        target = lb.designated_race(self.core.STADIUMS, utc_now)
+        self.assertEqual(target['id'], 'auto:20261015:04:01')
+
+    def test_target_waits_for_its_own_saved_prediction_without_using_another_race(self):
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:15:02'
+        text, deadline = self.bot.answer('買い目')
+        self.assertIn('丸亀2R', text)
+        self.assertIn('準備中', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(deadline)
+        self.assertIsNone(self.store.sample(self.now))
+        self.rows.append(forecast(stadium='15', race=2, deadline='11:00:00'))
+        text, _ = self.bot.answer('買い目')
+        self.assertIn('10/15 丸亀2R', text)
+        self.assertIn('ガチガチ｜10点', text)
+
+    def test_invalid_designated_prediction_does_not_fall_back_to_an_earlier_valid_race(self):
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:15:02'
+        bad = forecast(stadium='15', race=2, deadline='11:00:00')
+        bad['prediction_origin'] = 'manual'
+        self.rows.append(bad)
+        text, _ = self.bot.answer('買い目')
+        self.assertIn('丸亀2R', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(self.store.sample(self.now))
+
+    def test_other_race_request_before_pinning_only_names_the_operator_target(self):
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:15:02'
+        text, deadline = self.bot.answer('平和島1R')
+        self.assertIn('丸亀2Rの1レース', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(deadline)
+        self.assertIsNone(self.store.sample(self.now))
+        self.core.load_ledger.assert_not_called()
+
+    def test_operator_can_correct_target_before_the_sample_is_pinned(self):
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:15:02'
+        self.assertIn('準備中', self.bot.answer('買い目')[0])
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261015:04:01'
+        self.assertIn('10/15 平和島1R', self.bot.answer('買い目')[0])
+
+    def test_changing_or_clearing_operator_target_cannot_replace_a_pinned_sample(self):
+        original = self.bot.answer('買い目')[0]
+        self.rows.append(forecast(stadium='15', race=2, deadline='11:00:00'))
+        for value in ['20261015:15:02', '', '20261016:15:02']:
+            with self.subTest(value=value):
+                os.environ['BOAT_LINE_SAMPLE_RACE'] = value
+                restarted = lb.SampleBot(self.core, self.store, lambda: self.now)
+                self.assertEqual(restarted.answer('買い目')[0], original)
+                self.assertEqual(self.store.sample(self.now)['id'], self.row['id'])
+
+    def test_first_request_at_the_target_cutoff_does_not_select_another_live_race(self):
+        self.rows.append(forecast(stadium='15', race=2, deadline='11:00:00'))
+        self.now = self.now.replace(minute=28, second=30)
+        text, deadline = self.bot.answer('買い目')
+        self.assertIn('平和島1R', text)
+        self.assertIn('配信を終了', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(deadline)
+        self.assertIsNone(self.store.sample(self.now))
+
+    def test_operator_target_is_not_inherited_by_the_next_day(self):
+        self.bot.answer('買い目')
+        self.now += timedelta(days=1)
+        self.rows = [forecast(date='20261016', stadium='15')]
+        text, deadline = self.bot.answer('買い目')
+        self.assertIn('運営側で準備中', text)
+        self.assertNotIn('ガチガチ｜', text)
+        self.assertIsNone(deadline)
+        self.assertIsNone(self.store.sample(self.now))
 
     def test_global_sample_is_pinned_across_requests_and_bot_restarts(self):
         first = self.bot.answer('買い目')[0]
@@ -204,6 +314,7 @@ class LineBotTests(unittest.TestCase):
         self.assertFalse(lb.valid_signature(b'body', '非ASCII', 'test-secret'))
 
     def test_verification_request_checks_account_but_does_not_send(self):
+        os.environ.pop('BOAT_LINE_SAMPLE_RACE')
         self.assertEqual(self.post(events=[]).status_code, 200)
         self.sender.verify_account.assert_called_once()
         self.sender.reply.assert_not_called()
@@ -302,6 +413,7 @@ class LineBotTests(unittest.TestCase):
         self.bot.answer('買い目')
         self.now += timedelta(days=1)
         self.rows = [forecast(date='20261016', stadium='15')]
+        os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261016:15:01'
         text, _ = self.bot.answer('買い目')
         self.assertIn('10/16 丸亀1R', text)
         self.assertEqual(len(self.store.state['days']), 2)
@@ -397,3 +509,4 @@ class PostgresLineStoreTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
