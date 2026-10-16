@@ -73,6 +73,8 @@ class LineBotTests(unittest.TestCase):
             load_ledger=mock.Mock(side_effect=lambda: deepcopy(self.rows)),
         )
         self.store = MemoryStore()
+        self.store.set_subscription(USER, 'adult', self.now)
+        self.store.set_subscription(OTHER_USER, 'adult', self.now)
         self.bot = lb.SampleBot(self.core, self.store, lambda: self.now)
         self.config = lb.Config('test-secret', 'test-token', 'test', USER)
         self.sender = mock.Mock()
@@ -509,4 +511,5 @@ class PostgresLineStoreTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
 
