@@ -37,16 +37,23 @@ AGE_YES = '20歳以上・配信希望'
 AGE_NO = '20歳未満'
 STOP_COMMANDS = {'配信停止', '停止', '登録解除'}
 AGE_PROMPT = ('無料お試し予想の配信は20歳以上の方限定です。\n'
-              '20歳以上で、自動配信を希望する方は\n'
-              f'「{AGE_YES}」と送るか、下のボタンを選んでください。\n'
-              f'20歳未満の方は「{AGE_NO}」を選んでください。\n'
+              '文字入力は不要です。下の確認カードのボタンをタップしてください。\n'
               '配信に必要なLINEの識別IDと回答日時を非公開で保持します。'
               '氏名・生年月日の入力は不要です。\n'
               'いつでも「配信停止」で解除できます。')
-AGE_QUICK_REPLY = {'items': [
-    {'type': 'action', 'action': {'type': 'message', 'label': AGE_YES, 'text': AGE_YES}},
-    {'type': 'action', 'action': {'type': 'message', 'label': AGE_NO, 'text': AGE_NO}},
-]}
+AGE_BUTTONS = {
+    'type': 'template',
+    'altText': '年齢・配信希望の確認：トーク内のボタンをタップして回答してください。',
+    'template': {
+        'type': 'buttons',
+        'title': '年齢・配信希望の確認',
+        'text': '20歳以上で無料配信を希望する方は、下のボタンをタップしてください。',
+        'actions': [
+            {'type': 'message', 'label': AGE_YES, 'text': AGE_YES},
+            {'type': 'message', 'label': AGE_NO, 'text': AGE_NO},
+        ],
+    },
+}
 LABELS = (('gachi', '🎯 ガチガチ', 10),
           ('roman', '🚀 ロマン砲', 10),
           ('oni', '👹 鬼しぼり', 3))
@@ -57,7 +64,7 @@ COMMANDS = {'買い目', '予想', '今日の予想', '本日の予想', '今日
 HELP = ('Golden Racer｜無料お試し\n'
         '「買い目」と送ると、本日のお試し1レースの3タイプをお届けします。\n'
         '対象レースは運営が日付ごとに指定し、全員共通の1日1レースです。\n'
-        '自動配信は「20歳以上・配信希望」と回答した方だけが対象です。\n'
+        '自動配信は確認カードの「20歳以上・配信希望」を選んだ方が対象です。\n'
         '停止するときは「配信停止」と送ってください。\n'
         '指定レースの予想が保存されるまで準備中となります。\n'
         '締切直前・締切後は配信を終了します。全レースの指定には対応しません。\n'
@@ -418,16 +425,16 @@ class LineClient:
         except (requests.RequestException, ValueError, AttributeError) as error:
             raise LineError('LINE account check failed') from None
 
-    def reply(self, reply_token, text, quick_reply=None):
-        message = {'type': 'text', 'text': text}
-        if quick_reply is not None:
-            message['quickReply'] = quick_reply
+    def reply(self, reply_token, text, buttons=None):
+        messages = [{'type': 'text', 'text': text}]
+        if buttons is not None:
+            messages.append(buttons)
         try:
             response = requests.post(
                 'https://api.line.me/v2/bot/message/reply',
                 headers=self.headers,
                 json={'replyToken': reply_token,
-                      'messages': [message]},
+                      'messages': messages},
                 timeout=(3, 8), allow_redirects=False)
             if response.status_code != 200:
                 raise LineError('LINE reply failed')
@@ -504,14 +511,14 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                     user = event['source']['userId']
                     kind = event['type']
                     command = unicodedata.normalize('NFKC', event.get('message', {}).get('text', '')).strip()
-                    quick_reply, deadline, has_prediction = None, None, False
+                    buttons, deadline, has_prediction = None, None, False
                     if kind == 'unfollow':
                         store.set_subscription(user, 'stopped', now, event['timestamp'])
                         store.finish(event_id, now, 'unfollowed')
                         continue
                     if kind == 'follow':
                         store.set_subscription(user, 'pending', now, event['timestamp'])
-                        text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                        text, buttons = AGE_PROMPT, AGE_BUTTONS
                     elif command in STOP_COMMANDS or command == AGE_NO:
                         status = 'underage' if command == AGE_NO else 'stopped'
                         changed = store.set_subscription(user, status, now, event['timestamp'])
@@ -533,12 +540,12 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                                     '停止は「配信停止」と送ってください。\n'
                                     '参考情報であり、的中・利益を保証するものではありません。')
                         else:
-                            text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                            text, buttons = AGE_PROMPT, AGE_BUTTONS
                     elif not store.is_adult(user, now):
                         if store.subscription_status(user) == 'underage':
                             text = '20歳未満の方には予想・買い目を配信しません。'
                         else:
-                            text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                            text, buttons = AGE_PROMPT, AGE_BUTTONS
                     else:
                         text, deadline = bot.answer(event['message']['text'])
                         has_prediction = deadline is not None
@@ -550,11 +557,11 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                             or (deadline is not None and send_at >= deadline - MIN_LEAD)):
                         text = '日付または締切時刻が変わったため、今回の予想の配信を終了しました。'
                     if has_prediction and not store.is_adult(user, send_at):
-                        text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
-                    if quick_reply is None:
+                        text, buttons = AGE_PROMPT, AGE_BUTTONS
+                    if buttons is None:
                         client.reply(event['replyToken'], text)
                     else:
-                        client.reply(event['replyToken'], text, quick_reply=quick_reply)
+                        client.reply(event['replyToken'], text, buttons=buttons)
                     store.finish(event_id, now, 'sent')
                 except Exception:
                     # Do not log SDK exceptions, headers, tokens, user IDs, or
