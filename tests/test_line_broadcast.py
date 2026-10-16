@@ -41,6 +41,8 @@ class BroadcastTests(unittest.TestCase):
         self.core = SimpleNamespace(
             app=Flask(__name__), STADIUMS={'04': '平和島', '15': '丸亀'},
             load_ledger=mock.Mock(side_effect=lambda: deepcopy(self.rows)),
+            load_line_record=mock.Mock(side_effect=lambda record_id: next(
+                (deepcopy(row) for row in self.rows if row.get('id') == record_id), None)),
         )
         self.store = MemoryStore()
         self.config = lb.Config('not-a-secret', 'not-a-token', 'live')
@@ -53,7 +55,8 @@ class BroadcastTests(unittest.TestCase):
     def new_publisher(self):
         return broadcast.Publisher(
             self.core, store=self.store, clock=lambda: self.now,
-            config_provider=lambda: self.config, client_factory=self.factory)
+            config_provider=lambda: self.config, client_factory=self.factory,
+            record_loader=self.core.load_line_record)
 
     def sample(self):
         return lb.frozen_sample(self.row, self.core.STADIUMS, self.now)
@@ -89,7 +92,7 @@ class BroadcastTests(unittest.TestCase):
                 self.assertEqual(self.publisher.run_once(), 'disabled')
                 self.assertEqual(self.store.state['days'], {})
                 self.factory.assert_not_called()
-                self.core.load_ledger.assert_not_called()
+                self.core.load_line_record.assert_not_called()
                 os.environ['BOAT_LINE_BROADCAST_ENABLED'] = '1'
 
     def test_only_the_configured_jst_day_and_race_can_be_sent(self):
@@ -98,7 +101,7 @@ class BroadcastTests(unittest.TestCase):
                 os.environ['BOAT_LINE_SAMPLE_RACE'] = value
                 self.assertEqual(self.publisher.run_once(), 'waiting_for_target')
                 self.assertEqual(self.store.state['days'], {})
-                self.core.load_ledger.assert_not_called()
+                self.core.load_line_record.assert_not_called()
                 self.sender.broadcast.assert_not_called()
 
     def test_other_saved_race_does_not_replace_the_target_and_later_target_is_sent(self):
@@ -110,7 +113,7 @@ class BroadcastTests(unittest.TestCase):
         self.assertEqual(self.publisher.run_once(), 'accepted')
         self.assertEqual(self.store.sample(self.now)['id'], self.row['id'])
 
-    def test_invalid_settled_or_duplicate_source_cannot_be_broadcast(self):
+    def test_invalid_or_settled_source_cannot_be_broadcast(self):
         for field, value in [('prediction_origin', 'manual'), ('settled', True),
                              ('learned', True), ('actual_combo', '123'),
                              ('exhibition_detected_at', '2026-10-17T10:11:00+09:00'),
@@ -121,8 +124,6 @@ class BroadcastTests(unittest.TestCase):
                 self.rows = [row]
                 self.assertEqual(self.publisher.run_once(), 'waiting_for_prediction')
                 self.sender.broadcast.assert_not_called()
-        self.rows = [self.row, deepcopy(self.row)]
-        self.assertEqual(self.publisher.run_once(), 'waiting_for_prediction')
 
     def test_cutoff_or_next_day_stops_first_delivery(self):
         self.now = self.now.replace(minute=28, second=30)
@@ -211,12 +212,12 @@ class BroadcastTests(unittest.TestCase):
                 os.environ['BOAT_LINE_SAMPLE_RACE'] = '20261017:04:5'
 
     def test_storage_failure_after_claim_cannot_send_and_preserves_retry_key(self):
-        self.core.load_ledger.side_effect = [deepcopy(self.rows), RuntimeError('storage failed')]
+        self.core.load_line_record.side_effect = [deepcopy(self.row), RuntimeError('storage failed')]
         with self.assertRaises(RuntimeError):
             self.publisher.run_once()
         self.sender.broadcast.assert_not_called()
         key = self.store.read_day(self.now)['broadcast']['retry_key']
-        self.core.load_ledger.side_effect = lambda: deepcopy(self.rows)
+        self.core.load_line_record.side_effect = lambda record_id: deepcopy(self.row)
         self.now += timedelta(seconds=46)
         self.new_publisher().run_once()
         self.assertEqual(self.sender.broadcast.call_args.args[1], key)
@@ -347,6 +348,21 @@ class BroadcastHttpTests(unittest.TestCase):
 @unittest.skipUnless(os.getenv('LINE_TEST_DATABASE_URL'), 'isolated PostgreSQL test database not configured')
 class PostgresBroadcastTests(unittest.TestCase):
     setUp = fixtures.PostgresLineStoreTests.setUp
+
+    def test_loads_only_the_designated_record_from_postgres(self):
+        from state_store import state_connection
+        row = fixtures.forecast()
+        with state_connection() as connection:
+            connection.execute('''CREATE TABLE IF NOT EXISTS performance_ledger (
+                id TEXT PRIMARY KEY, record JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
+            connection.execute('''INSERT INTO performance_ledger(id, record)
+                VALUES (%s, %s::jsonb) ON CONFLICT (id) DO UPDATE SET record=EXCLUDED.record''',
+                (row['id'], json.dumps(row)))
+            connection.commit()
+        store = broadcast.BroadcastStore()
+        self.assertEqual(store.saved_record(row['id']), row)
+        self.assertIsNone(store.saved_record('auto:20990101:04:01'))
 
     def test_one_broadcast_claim_across_postgres_connections_and_restart(self):
         sample = lb.frozen_sample(fixtures.forecast(), {'04': '平和島'}, self.now)

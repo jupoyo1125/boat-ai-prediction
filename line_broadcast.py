@@ -6,6 +6,7 @@ free quota is accepted; paid/unlimited or unknown quota configurations stop.
 """
 from copy import deepcopy
 from datetime import datetime, timedelta
+import json
 import os
 import threading
 import uuid
@@ -17,7 +18,7 @@ from line_bot import (
     JST, MIN_LEAD, LineClient, LineError, LineStore, configuration,
     designated_race, format_sample, frozen_sample, now_jst, timestamp,
 )
-from state_store import strict_state_reads
+from state_store import state_connection, strict_state_reads
 
 LEASE = timedelta(seconds=45)
 MAX_RETRY_AGE = timedelta(minutes=10)  # Well within LINE's 24-hour retry window.
@@ -36,6 +37,17 @@ def enabled_config(config_provider=configuration):
 
 
 class BroadcastStore(LineStore):
+    def saved_record(self, record_id):
+        # The existing primary key avoids repeatedly loading the full history.
+        # Database failures propagate; there is no local-file fallback.
+        with state_connection() as connection:
+            found = connection.execute(
+                'SELECT record FROM performance_ledger WHERE id=%s',
+                (record_id,)).fetchone()
+        if found is None:
+            return None
+        return json.loads(found[0]) if isinstance(found[0], str) else found[0]
+
     def read_day(self, now):
         return self.mutate(lambda state: deepcopy(self.day(state, now)))
 
@@ -130,18 +142,19 @@ class BroadcastClient(LineClient):
 
 class Publisher:
     def __init__(self, core, *, store=None, client_factory=BroadcastClient,
-                 clock=now_jst, config_provider=configuration):
+                 clock=now_jst, config_provider=configuration, record_loader=None):
         self.core = core
         self.store = store if store is not None else BroadcastStore()
         self.client_factory = client_factory
         self.clock = clock
         self.config_provider = config_provider
+        self.record_loader = record_loader if record_loader is not None else self.store.saved_record
 
     def candidate(self, target, now):
-        rows = [row for row in self.core.load_ledger() if row.get('id') == target['id']]
-        if len(rows) != 1:
+        row = self.record_loader(target['id'])
+        if not isinstance(row, dict):
             return None
-        return frozen_sample(rows[0], self.core.STADIUMS, now)
+        return frozen_sample(row, self.core.STADIUMS, now)
 
     @strict_state_reads
     def run_once(self):
