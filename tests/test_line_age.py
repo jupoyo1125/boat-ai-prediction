@@ -32,8 +32,8 @@ class AgeWebhookTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         text = self.sender.reply.call_args.args[1]
         self.assertEqual(text, lb.AGE_PROMPT)
-        choices = self.sender.reply.call_args.kwargs['quick_reply']['items']
-        self.assertEqual([c['action']['text'] for c in choices], [lb.AGE_YES, lb.AGE_NO])
+        choices = self.sender.reply.call_args.kwargs['buttons']['template']['actions']
+        self.assertEqual([choice['text'] for choice in choices], [lb.AGE_YES, lb.AGE_NO])
         self.core.load_ledger.assert_not_called()
         self.assertIsNone(self.store.sample(self.now))
         self.assertEqual(self.store.recipients(self.now), [])
@@ -45,6 +45,7 @@ class AgeWebhookTests(unittest.TestCase):
         self.assertEqual(self.post(events=[event]).status_code, 200)
         self.assertEqual(self.store.subscription_status(fixtures.USER), 'pending')
         self.assertEqual(self.sender.reply.call_args.args[1], lb.AGE_PROMPT)
+        self.assertEqual(self.sender.reply.call_args.kwargs['buttons'], lb.AGE_BUTTONS)
         self.core.load_ledger.assert_not_called()
         self.assertEqual(self.store.recipients(self.now), [])
 
@@ -170,16 +171,46 @@ class AgeWebhookTests(unittest.TestCase):
         self.assertNotIn('birthdate', profile)
         self.assertNotIn(lb.AGE_YES, json.dumps(self.store.state, ensure_ascii=False))
 
-    def test_age_choices_are_valid_quick_reply_messages(self):
+    def test_age_choices_use_a_chat_card_with_valid_message_actions(self):
         response = mock.Mock(status_code=200)
         with mock.patch('line_bot.requests.post', return_value=response) as post:
             lb.LineClient('not-a-token').reply('reply-token', lb.AGE_PROMPT,
-                                             quick_reply=lb.AGE_QUICK_REPLY)
-        message = post.call_args.kwargs['json']['messages'][0]
-        self.assertEqual(message['quickReply'], lb.AGE_QUICK_REPLY)
-        for item in message['quickReply']['items']:
-            self.assertEqual(item['action']['type'], 'message')
-            self.assertLessEqual(len(item['action']['label']), 20)
+                                             buttons=lb.AGE_BUTTONS)
+        messages = post.call_args.kwargs['json']['messages']
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0], {'type': 'text', 'text': lb.AGE_PROMPT})
+        card = messages[1]
+        self.assertEqual(card['type'], 'template')
+        self.assertTrue(card['altText'])
+        self.assertLessEqual(len(card['altText']), 1500)
+        template = card['template']
+        self.assertEqual(template['type'], 'buttons')
+        self.assertLessEqual(len(template['title']), 40)
+        self.assertLessEqual(len(template['text']), 60)
+        self.assertEqual(len(template['actions']), 2)
+        self.assertEqual([action['label'] for action in template['actions']],
+                         [lb.AGE_YES, lb.AGE_NO])
+        for action in template['actions']:
+            self.assertEqual(action['type'], 'message')
+            self.assertLessEqual(len(action['label']), 20)
+            self.assertLessEqual(len(action['text']), 300)
+
+    def test_card_taps_register_or_decline_without_typed_text(self):
+        for index, expected_status in ((0, 'adult'), (1, 'underage')):
+            with self.subTest(choice=index):
+                self.now += timedelta(seconds=1)
+                event = self.event(event_id=f'follow-for-card-{index}')
+                event['type'] = 'follow'
+                event.pop('message')
+                self.post(events=[event])
+                card = self.sender.reply.call_args.kwargs['buttons']
+                action = card['template']['actions'][index]
+                self.now += timedelta(seconds=1)
+                self.post(events=[self.event(action['text'], event_id=f'card-tap-{index}')])
+                self.assertEqual(self.store.subscription_status(fixtures.USER), expected_status)
+                self.assertEqual(self.store.recipients(self.now),
+                                 [fixtures.USER] if expected_status == 'adult' else [])
+                self.core.load_ledger.assert_not_called()
 
     def test_stopped_profile_hash_is_expired_during_later_processing(self):
         self.store.set_subscription(fixtures.USER, 'stopped', self.now)
