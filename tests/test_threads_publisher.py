@@ -218,6 +218,105 @@ class PublisherTests(unittest.TestCase):
         self.client.create.assert_called_once_with(first['text'])
 
 
+class LinePromotionTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 17, 10, 20, tzinfo=tp.JST)
+        environment = mock.patch.dict(os.environ, {
+            'BOAT_THREADS_ENABLED': '1', 'BOAT_THREADS_MODE': 'daily',
+            'BOAT_THREADS_START_DATE': '20261016', 'BOAT_THREADS_UNTIL_DATE': '20261018',
+            'BOAT_THREADS_FROM_RACE': '1', 'THREADS_ACCESS_TOKEN': 'promotion-private-token',
+            'BOAT_THREADS_LINE_PROMO_DATE': '20261017',
+            'BOAT_THREADS_LINE_PROMO_RACE': '5',
+            'BOAT_THREADS_LINE_PROMO_URL': 'https://lin.ee/rPOD0ur',
+        }, clear=True)
+        environment.start(); self.addCleanup(environment.stop)
+        configured = mock.patch('automation.configured', return_value=True)
+        configured.start(); self.addCleanup(configured.stop)
+        clock = mock.patch('threads_publisher.now_jst', side_effect=lambda: self.now)
+        clock.start(); self.addCleanup(clock.stop)
+        self.row = DailyPublisherTests.row('20261017', 5)
+        self.config = tp.configuration(self.now)
+
+    def test_target_invites_to_line_without_revealing_racers_or_buy_lists(self):
+        entry = tp.candidate(self.row, self.config, self.now)
+        self.assertIsNotNone(entry)
+        text = entry['text']
+        self.assertIn('10/17 平和島5R｜無料予想LINE', text)
+        self.assertIn('https://lin.ee/rPOD0ur', text)
+        self.assertIn('20歳以上・配信希望', text)
+        self.assertIn('締切10:30', text)
+        for private in ['本命', '相手軸', '穴', '選手', 'AI予想', 'onrender.com']:
+            self.assertNotIn(private, text)
+        for bet in self.row['bets']:
+            self.assertNotIn(bet['bet'], text)
+        self.assertLessEqual(len(text), 500)
+
+    def test_other_races_and_next_day_keep_the_original_forecast(self):
+        for date, race in [('20261017', 4), ('20261017', 6), ('20261018', 5)]:
+            with self.subTest(date=date, race=race):
+                row = DailyPublisherTests.row(date, race)
+                now = self.now.replace(day=int(date[-2:]))
+                entry = tp.candidate(row, tp.configuration(now), now)
+                self.assertIsNotNone(entry)
+                self.assertIn('本命①選手1', entry['text'])
+                self.assertIn('ガチガチ10点', entry['text'])
+                self.assertNotIn('https://lin.ee/', entry['text'])
+
+    def test_promotion_still_requires_exhibition_and_two_minutes_before_close(self):
+        incomplete = copy.deepcopy(self.row)
+        incomplete['prediction']['boats'][0]['exhibition'] = None
+        self.assertIsNone(tp.candidate(incomplete, self.config, self.now))
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now.replace(minute=29)))
+        wrong_venue = dict(self.row, stadium='05')
+        self.assertIsNone(tp.candidate(wrong_venue, self.config, self.now))
+
+    def test_restarts_publish_only_one_invitation_and_leave_saved_picks_intact(self):
+        original = copy.deepcopy(self.row)
+        store = MemoryStore()
+        core = mock.Mock()
+        core.load_ledger.return_value = [self.row]
+        client = mock.Mock()
+        client.create.return_value = 'promotion-container'
+        client.publish.return_value = 'promotion-post'
+        for _ in range(2):
+            tp.Publisher(core, self.config, store, client, clock=lambda: self.now).run_once()
+        client.publish.assert_called_once_with('promotion-container')
+        self.assertIn('https://lin.ee/rPOD0ur', client.create.call_args.args[0])
+        self.assertEqual(self.row, original)
+
+    def test_incomplete_or_unsafe_campaign_disables_publication(self):
+        for changes in [
+            {'BOAT_THREADS_LINE_PROMO_URL': ''},
+            {'BOAT_THREADS_LINE_PROMO_DATE': '20260230'},
+            {'BOAT_THREADS_LINE_PROMO_RACE': '13'},
+            {'BOAT_THREADS_LINE_PROMO_URL': 'http://lin.ee/rPOD0ur'},
+            {'BOAT_THREADS_LINE_PROMO_URL': 'https://lin.ee.evil.example/rPOD0ur'},
+            {'BOAT_THREADS_LINE_PROMO_URL': 'https://lin.ee/rPOD0ur?redirect=elsewhere'},
+        ]:
+            with self.subTest(changes=changes), mock.patch.dict(os.environ, changes):
+                self.assertIsNone(tp.configuration(self.now))
+
+    def test_unset_campaign_keeps_existing_behavior(self):
+        with mock.patch.dict(os.environ, {
+            'BOAT_THREADS_LINE_PROMO_DATE': '', 'BOAT_THREADS_LINE_PROMO_RACE': '',
+            'BOAT_THREADS_LINE_PROMO_URL': '',
+        }):
+            config = tp.configuration(self.now)
+            self.assertIsNone(config.line_promotion)
+            self.assertIn('本命①選手1', tp.candidate(self.row, config, self.now)['text'])
+
+    def test_status_reports_the_exact_day_and_race_without_credentials(self):
+        with mock.patch.object(tp.PostStore, 'read', return_value={'version': 1, 'posts': {}}):
+            status = tp.public_status()
+        self.assertTrue(status['enabled'])
+        self.assertEqual(status['line_promotion'], {
+            'date': '20261017', 'stadium': '04', 'race': 5,
+            'url': 'https://lin.ee/rPOD0ur', 'active_today': True,
+            'content': 'line_invitation',
+        })
+        self.assertNotIn('promotion-private-token', str(status))
+
+
 class DailyPublisherTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 10, 15, 17, tzinfo=tp.JST)

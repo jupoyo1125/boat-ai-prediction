@@ -37,6 +37,17 @@ def now_jst():
 
 
 @dataclass(frozen=True)
+class LinePromotion:
+    date: str
+    race: int
+    url: str
+
+    def matches(self, row):
+        return (row.get('date') == self.date and row.get('stadium') == STADIUM
+                and row.get('race') == self.race)
+
+
+@dataclass(frozen=True)
 class Config:
     date: str
     first_race: int
@@ -46,6 +57,7 @@ class Config:
     mode: str = 'date'
     start_date: str = ''
     until_date: str = ''
+    line_promotion: LinePromotion | None = None
 
 
 def valid_date(value):
@@ -53,6 +65,20 @@ def valid_date(value):
         raise ValueError('invalid date')
     datetime.strptime(value, '%Y%m%d')
     return value
+
+
+def line_promotion_configuration():
+    date, race, url = [os.getenv(key, '').strip() for key in (
+        'BOAT_THREADS_LINE_PROMO_DATE', 'BOAT_THREADS_LINE_PROMO_RACE',
+        'BOAT_THREADS_LINE_PROMO_URL')]
+    if not any((date, race, url)):
+        return None
+    # An incomplete campaign must not fall back to exposing the selected picks.
+    date = valid_date(date)
+    race = int(race)
+    if not 1 <= race <= 12 or not re.fullmatch(r'https://lin\.ee/[A-Za-z0-9_-]{1,100}', url):
+        raise ValueError('invalid LINE promotion')
+    return LinePromotion(date, race, url)
 
 
 def configuration(now=None):
@@ -75,6 +101,7 @@ def configuration(now=None):
         first = int(os.getenv('BOAT_THREADS_FROM_RACE', ''))
         if not 1 <= first <= 12 or (mode == 'daily' and first != 1):
             return None
+        promotion = line_promotion_configuration()
     except (TypeError, ValueError):
         return None
     provider = os.getenv('BOAT_THREADS_PROVIDER', 'threads')
@@ -82,12 +109,12 @@ def configuration(now=None):
         token = os.getenv('BUFFER_API_KEY', '').strip()
         channel = os.getenv('BOAT_BUFFER_CHANNEL_ID', '').strip()
         if token and channel and len(channel) <= 256:
-            return Config(date, first, token, provider, channel, mode, start_date, until_date)
+            return Config(date, first, token, provider, channel, mode, start_date, until_date, promotion)
         return None
     if provider != 'threads':
         return None  # Never fall back to a different account or provider.
     token = os.getenv('THREADS_ACCESS_TOKEN', '').strip()
-    return Config(date, first, token, provider, '', mode, start_date, until_date) if token else None
+    return Config(date, first, token, provider, '', mode, start_date, until_date, promotion) if token else None
 
 
 def scope_active(config, now):
@@ -135,7 +162,7 @@ def complete_exhibition(prediction):
     return True
 
 
-def caption(row):
+def caption(row, promotion=None):
     """Copy saved rankings and all three buy lists; never re-run the model."""
     prediction = row['prediction']
     boats = {b['boat']: b for b in prediction['boats']}
@@ -168,6 +195,20 @@ def caption(row):
                 raise ValueError('invalid saved bet')
         groups.append(f'{label}{len(selected)}点\n' + (' / '.join(selected) if selected else '見送り'))
     date = row['date']
+    if promotion and promotion.matches(row):
+        # Keep the same saved/exhibition-backed eligibility and outbox identity,
+        # but never put the selected racers or actual buy lists in this post.
+        text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜無料予想LINE🚤】\n\n'
+                'このレースの展示後予想は、LINEで無料配信🙌\n'
+                '独自サイトが展示タイム・展示STを反映した予想をお届けします。\n\n'
+                '🎯ガチガチ／🚀ロマン砲／👹鬼しぼり\n'
+                '3タイプの買い目はLINEでチェック！\n\n'
+                '友だち追加後、「20歳以上・配信希望」をタップ👇\n'
+                f'{promotion.url}\n\n'
+                f'締切{timestamp(row["scheduled_deadline"]):%H:%M}')
+        if len(text) > 500:
+            raise ValueError('post text exceeds the allowed format')
+        return text
     text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後AI予想🚤】\n'
             '独自作成のAI予想サイトでは、以下の予想です。\n\n'
             + '\n'.join(lines) + '\n\n' + '\n\n'.join(groups)
@@ -194,7 +235,8 @@ def candidate(row, config, now):
             return None
         if deadline.strftime('%Y%m%d') != config.date or not complete_exhibition(row['prediction']):
             return None
-        return {'key': row['id'], 'deadline': deadline.isoformat(), 'text': caption(row),
+        return {'key': row['id'], 'deadline': deadline.isoformat(),
+                'text': caption(row, config.line_promotion),
                 'saved_at': row['prediction_saved_at'], 'state': 'queued', 'attempts': 0,
                 'provider': config.provider}
     except (KeyError, ValueError, TypeError, OverflowError):
@@ -546,6 +588,12 @@ def public_status():
                             if config else None,
               'connection': connection_status(config) if config else
                             {'state': 'unchecked', 'checked_at': None}}
+    if config and config.line_promotion:
+        promotion = config.line_promotion
+        result['line_promotion'] = {'date': promotion.date, 'stadium': STADIUM,
+                                    'race': promotion.race, 'url': promotion.url,
+                                    'active_today': promotion.date == config.date,
+                                    'content': 'line_invitation'}
     if not enabled:
         result['message'] = ('開始日まで待機しています。平和島の開催日は全12Rが対象です。'
                              if armed else '投稿設定が無効、設定不足、または対象期間外です。')
