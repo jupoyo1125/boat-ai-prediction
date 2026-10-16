@@ -2,8 +2,9 @@
 
 No predictions are generated here. Disabled by default; the initial enabled
 mode only answers the operator's test user. State id=3 is retained by the
-existing storage migration. No user IDs, reply tokens or message bodies are
-stored in the database or logs.
+existing storage migration. Opted-in adults' recipient IDs are kept only in
+private state for delivery. Reply tokens and incoming message bodies are never
+stored, and recipient IDs are never written to logs or public status endpoints.
 """
 import base64
 from copy import deepcopy
@@ -31,6 +32,21 @@ MIN_LEAD = timedelta(seconds=90)
 MAX_BODY = 65536
 MAX_EVENTS = 20
 MAX_DAILY_EVENTS = 5000
+MAX_SUBSCRIPTIONS = 5000
+AGE_YES = '20歳以上・配信希望'
+AGE_NO = '20歳未満'
+STOP_COMMANDS = {'配信停止', '停止', '登録解除'}
+AGE_PROMPT = ('無料お試し予想の配信は20歳以上の方限定です。\n'
+              '20歳以上で、自動配信を希望する方は\n'
+              f'「{AGE_YES}」と送るか、下のボタンを選んでください。\n'
+              f'20歳未満の方は「{AGE_NO}」を選んでください。\n'
+              '配信に必要なLINEの識別IDと回答日時を非公開で保持します。'
+              '氏名・生年月日の入力は不要です。\n'
+              'いつでも「配信停止」で解除できます。')
+AGE_QUICK_REPLY = {'items': [
+    {'type': 'action', 'action': {'type': 'message', 'label': AGE_YES, 'text': AGE_YES}},
+    {'type': 'action', 'action': {'type': 'message', 'label': AGE_NO, 'text': AGE_NO}},
+]}
 LABELS = (('gachi', '🎯 ガチガチ', 10),
           ('roman', '🚀 ロマン砲', 10),
           ('oni', '👹 鬼しぼり', 3))
@@ -41,6 +57,8 @@ COMMANDS = {'買い目', '予想', '今日の予想', '本日の予想', '今日
 HELP = ('Golden Racer｜無料お試し\n'
         '「買い目」と送ると、本日のお試し1レースの3タイプをお届けします。\n'
         '対象レースは運営が日付ごとに指定し、全員共通の1日1レースです。\n'
+        '自動配信は「20歳以上・配信希望」と回答した方だけが対象です。\n'
+        '停止するときは「配信停止」と送ってください。\n'
         '指定レースの予想が保存されるまで準備中となります。\n'
         '締切直前・締切後は配信を終了します。全レースの指定には対応しません。\n'
         '20歳以上の方向けの参考情報で、的中や利益を保証するものではありません。')
@@ -240,6 +258,88 @@ class LineStore:
                 events[key] = status
         self.mutate(change)
 
+    @staticmethod
+    def user_key(user):
+        if not isinstance(user, str) or not re.fullmatch(r'U[0-9a-fA-F]{32}', user):
+            raise ValueError('invalid LINE user')
+        return hashlib.sha256(user.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def subscriptions(state, now=None):
+        subscriptions = state.setdefault('subscriptions', {})
+        if not isinstance(subscriptions, dict):
+            raise ValueError('invalid LINE subscription state')
+        if now is not None:
+            oldest = now - timedelta(days=30)
+            for key, profile in list(subscriptions.items()):
+                if (isinstance(profile, dict) and profile.get('status') != 'adult'
+                        and timestamp(profile['updated_at']) < oldest):
+                    del subscriptions[key]
+        return subscriptions
+
+    @classmethod
+    def eligible_subscriber(cls, key, profile, now):
+        try:
+            user = profile['user_id']
+            return (profile.get('status') == 'adult'
+                    and type(profile.get('consent_version')) is int
+                    and profile['consent_version'] == 1
+                    and cls.user_key(user) == key
+                    and timestamp(profile['confirmed_at']) <= now)
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    @classmethod
+    def recipient_list(cls, state, now):
+        return sorted({profile['user_id'] for key, profile in cls.subscriptions(state, now).items()
+                       if cls.eligible_subscriber(key, profile, now)})
+
+    def recipients(self, now):
+        return self.mutate(lambda state: self.recipient_list(state, now))
+
+    def is_adult(self, user, now):
+        key = self.user_key(user)
+        return self.mutate(lambda state: self.eligible_subscriber(
+            key, self.subscriptions(state, now).get(key, {}), now))
+
+    def subscription_status(self, user):
+        key = self.user_key(user)
+        return self.mutate(lambda state: self.subscriptions(state).get(key, {}).get('status'))
+
+    def set_subscription(self, user, status, now, event_ms=None):
+        if status not in ('adult', 'underage', 'stopped', 'pending'):
+            raise ValueError('invalid subscription status')
+        key = self.user_key(user)
+        stamp = event_ms if event_ms is not None else int(now.timestamp() * 1000)
+        def change(state):
+            subscriptions = self.subscriptions(state, now)
+            previous = subscriptions.get(key)
+            if previous is not None:
+                old_stamp = previous.get('event_ms', -1)
+                if stamp < old_stamp or (stamp == old_stamp and status == 'adult'
+                                        and previous.get('status') != 'adult'):
+                    return False
+            elif len(subscriptions) >= MAX_SUBSCRIPTIONS:
+                raise ValueError('LINE subscription capacity reached')
+            profile = {'status': status, 'event_ms': stamp, 'updated_at': now.isoformat()}
+            if status == 'adult':
+                profile.update(user_id=user, consent_version=1, confirmed_at=now.isoformat())
+            subscriptions[key] = profile
+            if status != 'adult':
+                # Cancel the whole frozen audience instead of editing a request
+                # under an existing retry key. Remove retained recipient IDs.
+                for day in state['days'].values():
+                    publication = day.get('broadcast')
+                    if not isinstance(publication, dict):
+                        continue
+                    payload = publication.get('payload', {})
+                    if user in payload.get('to', []):
+                        if publication.get('status') != 'accepted':
+                            publication['status'] = 'cancelled'
+                        payload.pop('to', None)
+            return True
+        return self.mutate(change)
+
 
 class SampleBot:
     def __init__(self, core, store, clock=now_jst):
@@ -318,13 +418,16 @@ class LineClient:
         except (requests.RequestException, ValueError, AttributeError) as error:
             raise LineError('LINE account check failed') from None
 
-    def reply(self, reply_token, text):
+    def reply(self, reply_token, text, quick_reply=None):
+        message = {'type': 'text', 'text': text}
+        if quick_reply is not None:
+            message['quickReply'] = quick_reply
         try:
             response = requests.post(
                 'https://api.line.me/v2/bot/message/reply',
                 headers=self.headers,
                 json={'replyToken': reply_token,
-                      'messages': [{'type': 'text', 'text': text}]},
+                      'messages': [message]},
                 timeout=(3, 8), allow_redirects=False)
             if response.status_code != 200:
                 raise LineError('LINE reply failed')
@@ -342,13 +445,16 @@ def eligible_event(event, config, now):
     event_id, token = event.get('webhookEventId'), event.get('replyToken')
     user = source.get('userId', '')
     stamp = event.get('timestamp')
-    if (event.get('type') != 'message' or source.get('type') != 'user'
-            or message.get('type') != 'text' or not isinstance(message.get('text'), str)
-            or len(message['text']) > 500
+    kind = event.get('type')
+    if (kind not in ('message', 'follow', 'unfollow') or source.get('type') != 'user'
             or not isinstance(event_id, str) or not 1 <= len(event_id) <= 256
-            or not isinstance(token, str) or not 1 <= len(token) <= 256
+            or (kind != 'unfollow' and (not isinstance(token, str) or not 1 <= len(token) <= 256))
             or not isinstance(user, str) or not re.fullmatch(r'U[0-9a-fA-F]{32}', user)
             or isinstance(stamp, bool) or not isinstance(stamp, (int, float))):
+        return False
+    if kind == 'message' and (message.get('type') != 'text'
+                             or not isinstance(message.get('text'), str)
+                             or len(message['text']) > 500):
         return False
     age = now.timestamp() - stamp / 1000
     return (-5 <= age <= 50
@@ -395,7 +501,47 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                 if not store.claim(event_id, now):
                     continue
                 try:
-                    text, deadline = bot.answer(event['message']['text'])
+                    user = event['source']['userId']
+                    kind = event['type']
+                    command = unicodedata.normalize('NFKC', event.get('message', {}).get('text', '')).strip()
+                    quick_reply, deadline, has_prediction = None, None, False
+                    if kind == 'unfollow':
+                        store.set_subscription(user, 'stopped', now, event['timestamp'])
+                        store.finish(event_id, now, 'unfollowed')
+                        continue
+                    if kind == 'follow':
+                        store.set_subscription(user, 'pending', now, event['timestamp'])
+                        text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                    elif command in STOP_COMMANDS or command == AGE_NO:
+                        status = 'underage' if command == AGE_NO else 'stopped'
+                        changed = store.set_subscription(user, status, now, event['timestamp'])
+                        if not changed:
+                            text = ('新しい回答が先に届いているため、この回答は反映しませんでした。'
+                                    '停止する場合は、もう一度「配信停止」と送ってください。')
+                        else:
+                            text = ('20歳未満の方には予想・買い目を配信しません。'
+                                    if status == 'underage' else
+                                    '予想の配信を停止しました。配信用のLINE識別IDを削除しました。')
+                    elif command == AGE_YES:
+                        changed = store.set_subscription(user, 'adult', now, event['timestamp'])
+                        if changed and store.is_adult(user, now):
+                            text = ('20歳以上で配信を希望する旨の回答を受け付けました。\n'
+                                    '指定レースの展示後予想が保存されたら自動でお届けします。'
+                                    '1日最大1レースです。準備状況・締切・無料枠により配信しない場合があります。\n'
+                                    '本日の自動配信が済んでいる場合は、自動では届きません。'
+                                    '締切前なら「買い目」で確認できます。'
+                                    '停止は「配信停止」と送ってください。\n'
+                                    '参考情報であり、的中・利益を保証するものではありません。')
+                        else:
+                            text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                    elif not store.is_adult(user, now):
+                        if store.subscription_status(user) == 'underage':
+                            text = '20歳未満の方には予想・買い目を配信しません。'
+                        else:
+                            text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                    else:
+                        text, deadline = bot.answer(event['message']['text'])
+                        has_prediction = deadline is not None
                     send_at = clock().astimezone(JST)
                     if not eligible_event(event, config, send_at):
                         store.finish(event_id, now, 'expired')
@@ -403,7 +549,12 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                     if (send_at.strftime('%Y%m%d') != now.strftime('%Y%m%d')
                             or (deadline is not None and send_at >= deadline - MIN_LEAD)):
                         text = '日付または締切時刻が変わったため、今回の予想の配信を終了しました。'
-                    client.reply(event['replyToken'], text)
+                    if has_prediction and not store.is_adult(user, send_at):
+                        text, quick_reply = AGE_PROMPT, AGE_QUICK_REPLY
+                    if quick_reply is None:
+                        client.reply(event['replyToken'], text)
+                    else:
+                        client.reply(event['replyToken'], text, quick_reply=quick_reply)
                     store.finish(event_id, now, 'sent')
                 except Exception:
                     # Do not log SDK exceptions, headers, tokens, user IDs, or
@@ -414,4 +565,5 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
         except Exception:
             core.app.logger.warning('LINE webhook unavailable; check configuration or storage')
             return jsonify({'ok': False, 'code': 'line_unavailable'}), 503
+
 

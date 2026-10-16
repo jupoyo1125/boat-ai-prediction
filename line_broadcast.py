@@ -1,4 +1,4 @@
-"""Optional, dated LINE broadcast of the same frozen daily sample.
+"""Optional, dated LINE multicast of the same frozen daily sample to opted-in adults.
 
 No prediction is generated here. The existing private LINE state (id=3) pins
 the sample and commits a retry key before HTTP. Only the Japanese 200-message
@@ -24,6 +24,7 @@ LEASE = timedelta(seconds=45)
 MAX_RETRY_AGE = timedelta(minutes=10)  # Well within LINE's 24-hour retry window.
 MAX_ATTEMPTS = 3
 TERMINAL = {'accepted', 'failed', 'cancelled', 'unknown'}
+DELIVERY_KIND = 'verified_multicast_v1'
 _wake = threading.Event()
 _start_lock = threading.Lock()
 _runner = None
@@ -51,7 +52,7 @@ class BroadcastStore(LineStore):
     def read_day(self, now):
         return self.mutate(lambda state: deepcopy(self.day(state, now)))
 
-    def claim_broadcast(self, candidate, now):
+    def claim_broadcast(self, candidate, now, recipients=None):
         if (candidate['date'] != now.astimezone(JST).strftime('%Y%m%d')
                 or now >= timestamp(candidate['deadline']) - MIN_LEAD):
             return None
@@ -60,20 +61,33 @@ class BroadcastStore(LineStore):
             if day['sample'] is not None and day['sample'] != candidate:
                 return None
             entry = day.get('broadcast')
+            if entry is not None and entry.get('delivery_kind') != DELIVERY_KIND:
+                if entry.get('status') != 'accepted':
+                    entry['status'] = 'cancelled'
+                return None  # Never replay an old unrestricted broadcast request.
+            allowed = set(self.recipient_list(state, now))
+            selected = sorted(allowed) if recipients is None else list(recipients)
+            if (not selected or len(selected) > 500 or len(set(selected)) != len(selected)
+                    or not set(selected) <= allowed):
+                return None
             if entry is None:
                 day['sample'] = deepcopy(candidate)
                 entry = day['broadcast'] = {
+                    'delivery_kind': DELIVERY_KIND, 'recipient_count': len(selected),
                     'sample_id': candidate['id'], 'retry_key': str(uuid.uuid4()),
-                    'payload': {'messages': [{'type': 'text',
+                    'payload': {'to': selected, 'messages': [{'type': 'text',
                                              'text': format_sample(candidate)}]},
                     'first_attempt_at': now.isoformat(), 'attempts': 0,
                     'status': 'retry', 'next_attempt_at': now.isoformat(),
                 }
             if entry['sample_id'] != candidate['id'] or entry['status'] in TERMINAL:
                 return None
+            if entry['payload'].get('to') != selected:
+                return None
             if (entry['attempts'] >= MAX_ATTEMPTS
                     or now >= timestamp(entry['first_attempt_at']) + MAX_RETRY_AGE):
                 entry['status'] = 'unknown'
+                entry['payload'].pop('to', None)
                 return None
             if now < timestamp(entry['next_attempt_at']):
                 return None
@@ -95,6 +109,7 @@ class BroadcastStore(LineStore):
             if status == 'accepted':
                 current['status'] = 'accepted'
                 current['accepted_at'] = now.isoformat()
+                current['payload'].pop('to', None)
             elif current['attempts'] == entry['attempts']:
                 current['status'] = status
                 if status == 'retry':
@@ -103,11 +118,15 @@ class BroadcastStore(LineStore):
                     else:
                         delay = 15 * (2 ** (current['attempts'] - 1))
                         current['next_attempt_at'] = (now + timedelta(seconds=delay)).isoformat()
+                if current['status'] in TERMINAL:
+                    current['payload'].pop('to', None)
         self.mutate(change)
 
 
 class BroadcastClient(LineClient):
-    def free_quota_available(self):
+    def free_quota_available(self, recipient_count=1):
+        if type(recipient_count) is not int or not 1 <= recipient_count <= 500:
+            return False
         try:
             values = []
             for path in ('quota', 'quota/consumption'):
@@ -121,14 +140,24 @@ class BroadcastClient(LineClient):
             count = usage.get('totalUsage')
             return (quota.get('type') == 'limited'
                     and type(quota.get('value')) is int and quota['value'] == 200
-                    and type(count) is int and 0 <= count < 200)
+                    and type(count) is int and 0 <= count
+                    and count + recipient_count <= 200)
         except (requests.RequestException, ValueError, AttributeError, TypeError):
             raise LineError('LINE quota check failed') from None
 
-    def broadcast(self, payload, retry_key):
+    def multicast(self, payload, retry_key):
+        recipients = payload.get('to')
+        if (not isinstance(recipients, list) or not 1 <= len(recipients) <= 500
+                or len(set(recipients)) != len(recipients)):
+            return 'failed'
+        try:
+            for user in recipients:
+                LineStore.user_key(user)
+        except ValueError:
+            return 'failed'
         try:
             response = requests.post(
-                'https://api.line.me/v2/bot/message/broadcast',
+                'https://api.line.me/v2/bot/message/multicast',
                 headers={**self.headers, 'X-Line-Retry-Key': retry_key},
                 json=payload, timeout=(3, 8), allow_redirects=False)
             if response.status_code == 200 or (
@@ -169,6 +198,8 @@ class Publisher:
         previous = day.get('broadcast')
         if previous is not None and previous['status'] in TERMINAL:
             return previous['status']
+        if previous is not None and previous.get('delivery_kind') != DELIVERY_KIND:
+            return 'legacy_delivery_blocked'
         if (day['sample'] is not None and day['sample']['id'] != target['id']):
             return 'different_sample_pinned'
         candidate = self.candidate(target, now)
@@ -180,11 +211,17 @@ class Publisher:
             return 'source_changed'
         if previous is not None and now < timestamp(previous['next_attempt_at']):
             return 'busy'
+        allowed = set(self.store.recipients(now))
+        recipients = list(previous['payload'].get('to', [])) if previous else sorted(allowed)
+        if not recipients:
+            return 'waiting_for_age_confirmation'
+        if not set(recipients) <= allowed:
+            return 'recipient_withdrawn'
         client = self.client_factory(config.token)
         client.verify_account()
-        if not client.free_quota_available():
+        if not client.free_quota_available(len(recipients)):
             return 'quota_blocked'
-        entry = self.store.claim_broadcast(candidate, self.clock().astimezone(JST))
+        entry = self.store.claim_broadcast(candidate, self.clock().astimezone(JST), recipients)
         if entry is None:
             return 'busy'
         send_at = self.clock().astimezone(JST)
@@ -193,10 +230,11 @@ class Publisher:
                 or designated_race(self.core.STADIUMS, send_at) != target
                 or send_at.strftime('%Y%m%d') != candidate['date']
                 or send_at >= timestamp(candidate['deadline']) - MIN_LEAD
+                or not set(entry['payload']['to']) <= set(self.store.recipients(send_at))
                 or self.candidate(target, send_at) != candidate):
             self.store.finish_broadcast(entry, now, 'cancelled')
             return 'cancelled'
-        result = client.broadcast(entry['payload'], entry['retry_key'])
+        result = client.multicast(entry['payload'], entry['retry_key'])
         self.store.finish_broadcast(entry, now, result)
         return result
 
@@ -249,7 +287,10 @@ def register_broadcast_routes(core):
             'worker_running': _runner is not None and _runner.is_alive(),
             'target': target,
             'free_plan_only': True,
+            'requires_age_confirmation': True,
+            'delivery_method': 'verified_multicast',
             'requires_user_message': False,
         })
         response.headers['Cache-Control'] = 'no-store'
         return response
+
