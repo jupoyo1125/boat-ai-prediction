@@ -222,7 +222,7 @@ def start(core):
 
 def register_broadcast_routes(core):
     @core.app.get('/api/line_publishing')
-    def status():
+    def line_publishing_status():
         config = enabled_config()
         raw = os.getenv('BOAT_LINE_SAMPLE_RACE', '').strip()
         target = None

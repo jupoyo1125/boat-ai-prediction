@@ -278,9 +278,12 @@ class BroadcastTests(unittest.TestCase):
         self.assertEqual(self.store.read_day(self.now)['broadcast']['status'], 'accepted')
 
     def test_public_status_reports_future_target_without_tokens_or_user_ids(self):
+        self.core.app.add_url_rule('/existing_status', endpoint='status',
+                                   view_func=lambda: 'existing status')
         with mock.patch('line_broadcast.enabled_config', return_value=self.config):
             broadcast.register_broadcast_routes(self.core)
             response = self.core.app.test_client().get('/api/line_publishing')
+        self.assertEqual(self.core.app.test_client().get('/existing_status').text, 'existing status')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json['target']['id'], 'auto:20261017:04:05')
         self.assertTrue(response.json['free_plan_only'])
