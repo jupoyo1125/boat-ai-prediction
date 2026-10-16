@@ -206,6 +206,8 @@ class AutoRunner:
                         self.event(date, jcd, race, 'saved', '展示後の予想を保存しました。結果確定後に自動で反映します。')
                         from threads_publisher import wake
                         wake()
+                        from line_broadcast import wake as wake_line_broadcast
+                        wake_line_broadcast()
                     else:
                         self.event(date, jcd, race, 'skipped', '保存済み、または締切直前のため再予想しません。')
                 except Exception:
@@ -291,3 +293,4 @@ def start_automation(core):
         import psycopg
         _runner = AutoRunner(core)
         threading.Thread(target=_runner.run_forever, daemon=True, name='boat-auto-runner').start()
+

@@ -2024,6 +2024,10 @@ start_threads_publisher(sys.modules[__name__])
 from line_bot import register_line_routes
 register_line_routes(sys.modules[__name__])
 
+from line_broadcast import register_broadcast_routes, start as start_line_broadcast
+register_broadcast_routes(sys.modules[__name__])
+start_line_broadcast(sys.modules[__name__])
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=8000)
