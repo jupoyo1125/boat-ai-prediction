@@ -146,11 +146,15 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42px}button{background:#1476db;color:white;box-shadow:none}button:hover:not(:disabled){filter:brightness(.96)}button.secondary{background:#edf4fc;border:1px solid #c5d8ed;color:#1f5a96}select,input{background:white;color:var(--text);border:1px solid #cfd9e6;min-width:0;padding:9px 11px}select:disabled{background:#edf1f6;color:var(--muted)}button:disabled{opacity:.6;cursor:default}button:focus-visible,a:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #4e9ff3;outline-offset:3px}
 .date-navigation{display:grid;grid-template-columns:74px minmax(0,1fr) 74px;align-items:center;gap:12px;background:#f5f8fc;border:1px solid #e5ebf3;border-radius:9px;padding:10px 12px;margin:0 0 20px}.date-navigation label{display:flex;align-items:center;justify-content:center;gap:10px;min-width:0}.date-navigation label>span{font-size:12px;white-space:nowrap;font-weight:700}.date-navigation select{width:165px;min-height:38px;font-size:15px;font-weight:800;border-color:transparent;background:transparent;padding:4px;cursor:pointer}.day-button{background:white;border:1px solid var(--line);color:var(--text);font-size:12px;min-height:36px;padding:5px 9px;white-space:nowrap}.venue-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.venue-heading h2{font-size:13px;margin:0}.venue-heading>span{font-size:11px;color:var(--muted)}.venue-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;border:1px solid var(--line);border-bottom:0;border-right:0;overflow:hidden;border-radius:7px}.venue-tile{background:white;color:var(--text);border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;min-height:68px;padding:9px 4px;font-size:15px;font-weight:800;line-height:1.6;position:relative}.venue-state{display:block;font-size:10px;font-weight:500;color:var(--accent2)}.venue-tile:disabled{background:#edf0f5;color:#7b8799;opacity:1}.venue-tile:disabled .venue-state{color:#7b8799}.venue-tile.selected{background:#e9f3ff;box-shadow:inset 0 0 0 2px #1476db;color:#095aa7}.venue-tile.selected .venue-state{font-weight:800}.venue-tile:hover:not(:disabled){background:#f0f6fe;filter:none}
 .status{background:#eff5fc;color:#355678;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7}.manual-controls label{display:block;font-size:11px;color:var(--muted);font-weight:600}.manual-controls select{display:block;width:100%;margin-top:4px}.race-buttons{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:5px;margin:0;grid-column:auto}.race-btn{padding:8px 2px;min-height:40px;border:1px solid #d6e0ed;border-radius:6px;background:#f5f8fc;color:#465c76;font-size:12px;font-weight:700}.race-btn.active{background:#146fc7;color:white;border-color:#146fc7}.race-selection>.panel{padding:12px 0 0;margin:0;border:0;box-shadow:none}.metrics{gap:10px}.metric{padding:12px;background:var(--panel2);border:1px solid #e9eef5;border-radius:8px}.metric b{font-size:19px}.metric small{font-size:11px}.race-selection .metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.race-selection .metric{padding:10px}.race-selection .metric:last-child b{font-size:14px;min-height:30px;display:flex;align-items:center}.manual-actions{margin-top:14px;border-top:1px solid #edf0f5;padding-top:10px}.manual-actions summary,.feature-panel summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}.manual-controls{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:end;gap:8px;margin-top:12px}.manual-controls button{min-height:43px;font-size:12px;padding:7px}
-.bet-navigation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:20px 0 10px}.bet-navigation button{background:#e7edf5;color:#55677d;border:1px solid #dae3ef;font-size:13px;padding:11px 3px}.bet-navigation button[aria-pressed=true]{background:#183d6a;border-color:#183d6a;color:white}.bet-panel h2{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.category-description{font-size:10px;color:var(--muted);font-weight:500}.table-scroll{width:100%;overflow-x:auto}.bet-table th{background:#f6f8fc;font-size:11px;white-space:nowrap;padding:9px 8px}.bet-table td{font-size:12px;padding:12px 8px}.bet-table td:nth-child(2){white-space:nowrap;font-size:17px;color:#173d6b}.bet-table td:last-child{color:var(--muted);max-width:320px}.good{background:#e9f6ee;color:#176d44}.mid{background:#fff6df;color:#8a651b}.low{background:#fff0f1;color:#a64251}.bet-empty{display:none;color:var(--muted);font-size:13px;padding:20px 12px;background:#f6f8fc;text-align:center;border-radius:8px}.bet-panel:not(:has(tbody tr)) .bet-empty{display:block}.bet-panel:not(:has(tbody tr)) .table-scroll{display:none}
+.bet-navigation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:20px 0 10px}.bet-navigation button{background:#e7edf5;color:#55677d;border:1px solid #dae3ef;font-size:13px;padding:11px 3px}.bet-navigation button[aria-pressed=true]{background:#183d6a;border-color:#183d6a;color:white}.bet-panel h2{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.category-description{font-size:10px;color:var(--muted);font-weight:500}.table-scroll{width:100%;overflow-x:auto}.bet-table{font-variant-numeric:tabular-nums}.bet-table th{background:#f6f8fc;font-size:11px;padding:8px 12px}.bet-table td{font-size:14px;padding:8px 12px;border-bottom:1px solid #e4ebf3;white-space:nowrap}.bet-table td:first-child{font-size:20px;letter-spacing:1px;color:#173d6b}.bet-table th:last-child,.bet-table td:last-child{text-align:right;width:40%}.bet-table td:last-child{color:#465c76}.bet-table td[colspan]{white-space:normal;text-align:center}.good{background:#e9f6ee;color:#176d44}.mid{background:#fff6df;color:#8a651b}.low{background:#fff0f1;color:#a64251}.bet-empty{display:none;color:var(--muted);font-size:13px;padding:20px 12px;background:#f6f8fc;text-align:center;border-radius:8px}.bet-panel:not(:has(tbody tr)) .bet-empty{display:block}.bet-panel:not(:has(tbody tr)) .table-scroll{display:none}
 .feature-panel summary{font-size:13px;color:var(--text);padding:2px}.feature-panel details[open] summary{margin-bottom:18px}.cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.boat{background:#f6f8fc;border-color:#e0e8f2;border-radius:9px;padding:13px}.boat .num{font-size:16px}.boat .name{font-size:12px;color:#425a76}.boat .score{font-size:23px;color:#106cc4}.boat small{font-size:11px;color:var(--muted)}.bar{background:#e1e9f4;height:4px}.bar i{background:linear-gradient(90deg,#2479d3,#65b9f6)}
 .performance-category{background:white;border-color:#dce5f0;border-radius:10px;padding:16px}.performance-category .metric{background:#f6f8fc;border:0;padding:10px}.performance-category h4{font-size:16px}.performance-category .metric b{font-size:20px}.performance-period-note{font-size:12px;color:var(--muted)}.performance-date-controls input{color-scheme:light}.performance-controls label{font-size:12px}.performance-period h3{font-size:16px}.performance-historical summary{font-size:13px}.maintenance{background:#fff}.maintenance summary::after{color:#246cba}.maintenance a{color:#1269b9}.footer{border-top:1px solid var(--line);margin-top:24px;padding:18px 10px;font-size:10px;line-height:1.7;color:var(--muted)}
 @media(max-width:760px){.app{padding:0 16px 16px}.site-header{height:78px}.header-label{font-size:8px;letter-spacing:1px}.section-heading h1,.section-heading h2{font-size:20px}.venue-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{padding:17px}.automation-panel{padding:11px 14px}.date-navigation{gap:6px;padding:8px}.date-navigation label{gap:2px;flex-direction:column}.date-navigation select{width:150px;min-height:28px}.date-navigation label>span{font-size:10px}.race-buttons{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:520px){.app{padding:0 10px 12px}.site-header{height:72px}.brand{font-size:24px;gap:9px}.brand small{font-size:9px;letter-spacing:.8px}.brand .brand-mark{width:34px;height:34px;font-size:24px}.header-label{display:none}.main-nav{margin-bottom:12px;border-radius:0}.main-nav a{font-size:13px;padding:12px 4px 10px}.panel{border-radius:9px;padding:14px;margin-bottom:12px}.automation-panel{padding:9px 12px}.automation-panel .metric{padding:0 7px;border-top:0;border-right:0;border-bottom:0}.automation-panel .metric small{font-size:9px;white-space:nowrap}.automation-panel .metric b{font-size:18px}.automation-panel .metric:first-child b{font-size:11px;min-height:27px}.automation-panel h2{font-size:11px}.automation-details{margin-top:5px}.automation-details summary{font-size:10px}.section-heading{margin-bottom:14px;gap:6px}.section-hint{font-size:9px}.eyebrow{font-size:8px}.section-heading h1,.section-heading h2{font-size:18px}.date-navigation{grid-template-columns:57px minmax(0,1fr) 57px;margin-bottom:14px;padding:7px 5px}.day-button{padding:4px;font-size:11px}.date-navigation select{font-size:14px;width:139px}.venue-heading h2{font-size:12px}.venue-heading>span{font-size:10px}.venue-tile{min-height:59px;font-size:14px;padding:7px 2px}.venue-state{font-size:9px}.race-selection .metric{padding:7px 5px}.race-selection .metric small{font-size:10px}.race-selection .metric b{font-size:16px}.race-selection .metric:last-child b{font-size:11px;min-height:26px}.manual-controls{grid-template-columns:1fr 1fr}.manual-controls label{grid-column:1/-1}.bet-navigation{gap:4px;margin-top:16px}.bet-navigation button{font-size:12px;padding:10px 1px;min-height:44px}.bet-panel h2{font-size:17px}.category-description{font-size:9px}.table-scroll{overflow:visible}.bet-table thead{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.bet-table tbody{display:block}.bet-table tr{display:grid;grid-template-columns:26px repeat(3,minmax(0,1fr));gap:6px;padding:14px 0;border-top:1px solid #e4ebf3}.bet-table td{border:0;padding:0;font-size:12px;background:transparent;min-width:0}.bet-table td:nth-child(1){grid-column:1;grid-row:1/3;color:#8694a7;font-size:11px;padding-top:6px}.bet-table td:nth-child(2){grid-column:2/5;font-size:22px;line-height:1.3}.bet-table td:nth-child(3){grid-column:2}.bet-table td:nth-child(4){grid-column:3}.bet-table td:nth-child(5){grid-column:4}.bet-table td:nth-child(3)::before,.bet-table td:nth-child(4)::before,.bet-table td:nth-child(5)::before{display:block;font-size:9px;color:var(--muted);font-weight:400}.bet-table td:nth-child(3)::before{content:'推定確率'}.bet-table td:nth-child(4)::before{content:'オッズ'}.bet-table td:nth-child(5)::before{content:'期待倍率'}.bet-table td:last-child{grid-column:1/-1;max-width:none;font-size:11px!important;background:#f6f8fc;border-radius:5px;padding:7px 9px;margin-top:2px}.bet-table td[colspan]{grid-column:1/-1!important;grid-row:auto!important}.performance-category{padding:13px}.performance-category .metric b{font-size:20px}.page-heading{margin-top:20px}.page-heading h1{font-size:23px}.page-heading>p:last-child{font-size:12px}.maintenance summary small{font-size:10px}}
+@media(max-width:520px){.app{padding:0 10px 12px}.site-header{height:72px}.brand{font-size:24px;gap:9px}.brand small{font-size:9px;letter-spacing:.8px}.brand .brand-mark{width:34px;height:34px;font-size:24px}.header-label{display:none}.main-nav{margin-bottom:12px;border-radius:0}.main-nav a{font-size:13px;padding:12px 4px 10px}.panel{border-radius:9px;padding:14px;margin-bottom:12px}.automation-panel{padding:9px 12px}.automation-panel .metric{padding:0 7px;border-top:0;border-right:0;border-bottom:0}.automation-panel .metric small{font-size:9px;white-space:nowrap}.automation-panel .metric b{font-size:18px}.automation-panel .metric:first-child b{font-size:11px;min-height:27px}.automation-panel h2{font-size:11px}.automation-details{margin-top:5px}.automation-details summary{font-size:10px}.section-heading{margin-bottom:14px;gap:6px}.section-hint{font-size:9px}.eyebrow{font-size:8px}.section-heading h1,.section-heading h2{font-size:18px}.date-navigation{grid-template-columns:57px minmax(0,1fr) 57px;margin-bottom:14px;padding:7px 5px}.day-button{padding:4px;font-size:11px}.date-navigation select{font-size:14px;width:139px}.venue-heading h2{font-size:12px}.venue-heading>span{font-size:10px}.venue-tile{min-height:59px;font-size:14px;padding:7px 2px}.venue-state{font-size:9px}.race-selection .metric{padding:7px 5px}.race-selection .metric small{font-size:10px}.race-selection .metric b{font-size:16px}.race-selection .metric:last-child b{font-size:11px;min-height:26px}.manual-controls{grid-template-columns:1fr 1fr}.manual-controls label{grid-column:1/-1}.bet-navigation{gap:4px;margin-top:16px}.bet-navigation button{font-size:12px;padding:10px 1px;min-height:44px}.bet-panel h2{font-size:17px}.category-description{font-size:9px}.bet-table td{padding:8px 10px}.bet-table td:first-child{font-size:21px}.performance-category{padding:13px}.performance-category .metric b{font-size:20px}.page-heading{margin-top:20px}.page-heading h1{font-size:23px}.page-heading>p:last-child{font-size:12px}.maintenance summary small{font-size:10px}}
+
+.hit-rate-button{display:block;width:100%;min-height:44px;margin-top:4px;padding:0;background:transparent;color:#1269b9;border:0;border-radius:3px;text-align:left;font-size:20px;font-weight:800;text-decoration:underline;text-underline-offset:4px;font-variant-numeric:tabular-nums}.hit-rate-button:hover:not(:disabled){background:#e9f3ff;filter:none}.hit-rate-button:disabled{opacity:1;color:var(--text);text-decoration:none}.hit-rate-hint{display:block;margin-top:2px;color:#1269b9;font-size:10px}.hit-rate-button:disabled+.hit-rate-hint{visibility:hidden}
+.hits-dialog{width:min(640px,calc(100% - 24px));max-height:85vh;max-height:85svh;padding:20px;border:1px solid var(--line);border-radius:12px;background:white;color:var(--text);box-shadow:0 16px 60px #07172c55;overflow:auto;overscroll-behavior:contain}.hits-dialog::backdrop{background:#091b36a6}.hits-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.hits-dialog h3{margin:0;font-size:18px}.hits-dialog-heading button{flex:none;padding:6px 12px}.hits-dialog p{font-size:12px;color:var(--muted);margin:10px 0}.hits-list-scroll{max-height:55vh;max-height:55svh;overflow:auto;overscroll-behavior:contain}.hits-table{font-variant-numeric:tabular-nums}.hits-table th{position:sticky;top:0;background:#f6f8fc;font-size:11px;white-space:nowrap}.hits-table td{font-size:13px;white-space:nowrap}.hits-table th,.hits-table td{padding:10px 6px;border-bottom:1px solid #e4ebf3}.hits-table th:last-child,.hits-table td:last-child{text-align:right}.hits-table td:nth-child(3){font-weight:800;color:#173d6b}.hits-dialog .hits-total{font-weight:700;color:var(--text)}
+@media(max-width:520px){.hits-dialog{padding:14px}.hits-dialog h3{font-size:16px}.hits-table td{font-size:12px}.hits-table th,.hits-table td{padding:10px 4px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
 </style>
@@ -221,12 +225,8 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th scope="col">順位</th>
 <th scope="col">買い目</th>
-<th scope="col">推定確率</th>
 <th scope="col">オッズ</th>
-<th scope="col">期待倍率</th>
-<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsGachi"></tbody>
@@ -236,12 +236,8 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th scope="col">順位</th>
 <th scope="col">買い目</th>
-<th scope="col">推定確率</th>
 <th scope="col">オッズ</th>
-<th scope="col">期待倍率</th>
-<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsRoman"></tbody>
@@ -251,12 +247,8 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th scope="col">順位</th>
 <th scope="col">買い目</th>
-<th scope="col">推定確率</th>
 <th scope="col">オッズ</th>
-<th scope="col">期待倍率</th>
-<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsOni"></tbody>
@@ -302,7 +294,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <h4>🎯 ガチガチ</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfDailyGachiRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="perfDailyGachiHitRate">-</b></div>
+<div class="metric"><small>的中率</small><button type="button" class="hit-rate-button" id="perfDailyGachiHitRate" aria-haspopup="dialog" aria-controls="perfHitsDialog" disabled>-</button><span class="hit-rate-hint">的中一覧を見る</span></div>
 <div class="metric"><small>収支</small><b id="perfDailyGachiProfit">-</b></div>
 <div class="metric"><small>結果確定</small><b id="perfDailyGachiSettled">-</b></div>
 </div>
@@ -312,7 +304,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <h4>🚀 ロマン砲</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfDailyRomanRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="perfDailyRomanHitRate">-</b></div>
+<div class="metric"><small>的中率</small><button type="button" class="hit-rate-button" id="perfDailyRomanHitRate" aria-haspopup="dialog" aria-controls="perfHitsDialog" disabled>-</button><span class="hit-rate-hint">的中一覧を見る</span></div>
 <div class="metric"><small>収支</small><b id="perfDailyRomanProfit">-</b></div>
 <div class="metric"><small>結果確定</small><b id="perfDailyRomanSettled">-</b></div>
 </div>
@@ -322,7 +314,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <h4>👹 鬼しぼり</h4>
 <div class="metrics">
 <div class="metric"><small>回収率</small><b id="perfDailyOniRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="perfDailyOniHitRate">-</b></div>
+<div class="metric"><small>的中率</small><button type="button" class="hit-rate-button" id="perfDailyOniHitRate" aria-haspopup="dialog" aria-controls="perfHitsDialog" disabled>-</button><span class="hit-rate-hint">的中一覧を見る</span></div>
 <div class="metric"><small>収支</small><b id="perfDailyOniProfit">-</b></div>
 <div class="metric"><small>結果確定</small><b id="perfDailyOniSettled">-</b></div>
 </div>
@@ -367,6 +359,15 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 </div>
 </section>
 <div aria-live="polite" class="status" id="perfNote">日次・累計の実績を確認しています。</div>
+<dialog class="hits-dialog" id="perfHitsDialog" aria-labelledby="perfHitsTitle" aria-describedby="perfHitsContext">
+<div class="hits-dialog-heading"><h3 id="perfHitsTitle">的中レース一覧</h3><button type="button" class="secondary" id="perfHitsClose">閉じる</button></div>
+<p id="perfHitsContext"></p>
+<p>払戻金額は3連単1点100円あたりです。</p>
+<div class="hits-list-scroll"><table class="hits-table"><thead><tr><th scope="col">場</th><th scope="col">レース</th><th scope="col">結果出目</th><th scope="col">払戻金額</th></tr></thead><tbody id="perfHitsRows"></tbody></table></div>
+<p id="perfHitsEmpty" hidden>対象の的中レースはありません。</p>
+<p class="hits-total" id="perfHitsTotal"></p>
+</dialog>
+
 </section>
 </div>
 <div id="pageLearning" data-page="learning" hidden>
@@ -482,7 +483,7 @@ AIが現在重視している特徴
 </details>
 </div>
 </main>
-<div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
+<div class="footer">予想はモデル計算による参考情報です。的中や利益を保証するものではありません。</div>
 </div>
 
 <script>
@@ -505,6 +506,8 @@ let performanceFollowingToday=true;
 let performanceDisplayedDate='';
 let performanceDisplayedScope='';
 let performanceDisplayedStadium='';
+let performanceDailyDetails=null;
+let performanceHitsCategory='';
 
 function predictionKey(params=getParams()){
   return [params.date,params.stadium,params.race].join(':');
@@ -809,6 +812,44 @@ async function loadSchedule(){
 function performanceTodayDate(){
   return new Date(Date.now()+9*60*60*1000).toISOString().slice(0,10);
 }
+function closeDailyHits(){
+  performanceHitsCategory='';
+  const dialog=document.getElementById('perfHitsDialog');
+  if(dialog.open) dialog.close();
+}
+function escapeMarkup(value){
+  return String(value??'').replace(/[&<>"']/g,character=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[character]);
+}
+function renderDailyHits(category){
+  const details=performanceDailyDetails;
+  const hits=details?.hits?.[category];
+  const names={gachi:'🎯 ガチガチ',roman:'🚀 ロマン砲',oni:'👹 鬼しぼり'};
+  const stats=details?.stats?.[category];
+  if(!names[category]||stats?.hit_rate==null||!Array.isArray(hits)||hits.length!==Number(stats.wins||0)) return false;
+  document.getElementById('perfHitsTitle').textContent=names[category]+'の的中レース';
+  document.getElementById('perfHitsContext').textContent=details.label+'｜'+
+    (details.scope==='automatic'?'自動予想':'手動予想を含む保存記録');
+  document.getElementById('perfHitsRows').innerHTML=hits.map(hit=>'<tr><td>'+
+    escapeMarkup(hit.venue)+'</td><td>'+escapeMarkup(hit.race)+'R</td><td>'+
+    escapeMarkup(hit.actual_combo)+'</td><td>'+Number(hit.payout).toLocaleString('ja-JP')+'円</td></tr>').join('');
+  document.getElementById('perfHitsEmpty').hidden=hits.length>0;
+  const total=hits.reduce((sum,hit)=>sum+Number(hit.payout),0);
+  document.getElementById('perfHitsTotal').textContent='的中'+hits.length.toLocaleString('ja-JP')+
+    'R｜払戻合計 '+total.toLocaleString('ja-JP')+'円';
+  return true;
+}
+function openDailyHits(category){
+  const date=document.getElementById('perfDate').value.replaceAll('-','');
+  const scope=document.getElementById('perfScope').value;
+  const stadium=document.getElementById('perfStadium').value;
+  if(performanceDailyDetails?.key!==date+':'+scope+':'+stadium) return;
+  if(!renderDailyHits(category)) return;
+  performanceHitsCategory=category;
+  const dialog=document.getElementById('perfHitsDialog');
+  if(!dialog.open) dialog.showModal();
+}
 function renderPerformanceCategories(prefix,categoryStats,operational=true){
   for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
     const s=categoryStats?.[category];
@@ -818,6 +859,12 @@ function renderPerformanceCategories(prefix,categoryStats,operational=true){
     hitRate.textContent=s?.hit_rate==null ? '-' : Number(s.hit_rate).toFixed(1)+'%';
     roi.title=s ? '結果確定'+Number(s.settled||0)+'R｜購入'+Number(s.investment||0).toLocaleString('ja-JP')+'円｜払戻'+Number(s.payout||0).toLocaleString('ja-JP')+'円' : '';
     hitRate.title=s ? '結果確定'+Number(s.settled||0)+'R｜的中'+Number(s.wins||0)+'R' : '';
+    if(prefix==='perfDaily'){
+      const hits=performanceDailyDetails?.hits?.[category];
+      hitRate.disabled=s?.hit_rate==null||!Array.isArray(hits)||hits.length!==Number(s.wins||0);
+      hitRate.ariaLabel={gachi:'ガチガチ',roman:'ロマン砲',oni:'鬼しぼり'}[category]+
+        'の的中率 '+hitRate.textContent+'。的中レース一覧を開く';
+    }
     if(!operational) continue;
     const settled=Number(s?.settled||0),pending=Number(s?.pending||0),profit=Number(s?.profit||0);
     document.getElementById(prefix+id+'Profit').textContent=!s||!settled ? '-' : (profit>0?'+':'')+profit.toLocaleString('ja-JP')+'円';
@@ -845,7 +892,11 @@ async function loadPerformanceStatus(){
   const pending={key,controller:new AbortController(),sequence:++performanceSequence};
   performanceRequest=pending;
   const note=document.getElementById('perfNote');
-  if(performanceDisplayedDate!==date||performanceDisplayedScope!==scope||performanceDisplayedStadium!==stadium) renderPerformanceCategories('perfDaily',null);
+  if(performanceDisplayedDate!==date||performanceDisplayedScope!==scope||performanceDisplayedStadium!==stadium){
+    performanceDailyDetails=null;
+    closeDailyHits();
+    renderPerformanceCategories('perfDaily',null);
+  }
   if(performanceDisplayedScope!==scope) renderPerformanceCategories('perf',null);
   document.getElementById('perfDailyNote').textContent=dailyLabel+'の実績を確認しています。';
   note.textContent='日次・累計の実績を更新しています。';
@@ -859,7 +910,12 @@ async function loadPerformanceStatus(){
       const cumulative=automatic ? x.automatic_category_stats : x.category_stats;
       renderPerformanceCategories('perf',cumulative);
       const daily=x.daily?.date===date&&(x.daily.stadium||'')===stadium ? (automatic ? x.daily.automatic_category_stats : x.daily.category_stats) : null;
+      performanceDailyDetails=daily ? {key,label:dailyLabel,scope,stats:daily,
+        hits:automatic ? x.daily.automatic_category_hits : x.daily.category_hits} : null;
       renderPerformanceCategories('perfDaily',daily);
+      if(performanceHitsCategory){
+        if(!renderDailyHits(performanceHitsCategory)) closeDailyHits();
+      }
       performanceDisplayedDate=date;
       performanceDisplayedScope=scope;
       performanceDisplayedStadium=stadium;
@@ -1282,250 +1338,26 @@ function renderAnalysis(x){
       ? x.bets
       : [];
 
-  const gachi =
-    bets.filter(
-      b => b.category === 'gachi'
-    );
-
-  const roman =
-    bets.filter(
-      b => b.category === 'roman'
-    );
-
-  const oni =
-    bets.filter(
-      b => b.category === 'oni'
-    );
-
-  const oniFromGachi = x.oni_selection_rule === 'gachi-top3-probability-v1';
-  document.getElementById('oniSelectionBasis').textContent =
+  // 表示順だけを変更し、保存済みの買い目と選定順は保持する。
+  const comboNumber=bet=>Number(String(bet.bet||'').replaceAll('-',''));
+  const displayBets=category=>bets.filter(b=>b.category===category)
+    .sort((a,b)=>comboNumber(a)-comboNumber(b));
+  const oniFromGachi=x.oni_selection_rule==='gachi-top3-probability-v1';
+  document.getElementById('oniSelectionBasis').textContent=
     oniFromGachi ? 'ガチガチから3点' : '旧ルールの保存予想';
-
-  function getReason(
-    b,
-    category
-  ){
-
-    const combo =
-      String(b.bet || '');
-
-    const a =
-      Number(combo[0]);
-
-    const b2 =
-      Number(combo[2]);
-
-    const c =
-      Number(combo[4]);
-
-    const prob =
-      (
-        Number(b.probability || 0)
-        * 100
-      ).toFixed(2);
-
-    const odds =
-      Number(b.odds || 0)
-        .toFixed(1);
-
-    const ev =
-      Number(b.ev || 0)
-        .toFixed(2);
-
-    // 🔥 ガチガチ
-    if(category === 'gachi'){
-
-      if(
-        a === Number(x.main)
-        &&
-        b2 === Number(x.second)
-      ){
-        return `本命${x.main}号艇＋対抗${x.second}号艇を軸にした堅めの組み合わせ。AI確率${prob}%・オッズ${odds}倍。`;
-      }
-
-      if(
-        a === Number(x.main)
-      ){
-        return `本命${x.main}号艇の1着を軸に、相手上位を絡めた堅めの買い目。AI確率${prob}%。`;
-      }
-
-      if(
-        a === Number(x.second)
-      ){
-        return `対抗${x.second}号艇の1着まで押さえる堅めの展開。AI確率${prob}%。`;
-      }
-
-      return `本命・対抗・穴の上位評価を中心にした比較的堅めの組み合わせ。`;
+  for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
+    const selected=displayBets(category);
+    document.getElementById('bets'+id).innerHTML=selected.map(bet=>{
+      const combo=String(bet.bet||'').replaceAll('-','');
+      const label=/^[1-6]{3}$/.test(combo)&&new Set(combo).size===3 ? [...combo].join('-') : '-';
+      const odds=bet.odds==null||!Number.isFinite(Number(bet.odds)) ? '-' : Number(bet.odds)+'倍';
+      return '<tr><td><b>'+label+'</b></td><td>'+odds+'</td></tr>';
+    }).join('');
+    if(category==='oni'&&!selected.length){
+      document.getElementById('betsOni').innerHTML='<tr><td colspan="2">👹 買い目なし<br><small>'+
+        (oniFromGachi ? 'ガチガチの候補がないため、鬼しぼりもありません。' :
+          '保存時の旧ルールでは買い目がなく、見送りでした。')+'</small></td></tr>';
     }
-
-    // 🚀 ロマン砲
-    if(category === 'roman'){
-
-      if(
-        a === Number(x.hole)
-      ){
-        return `穴${x.hole}号艇の1着を狙う高配当パターン。オッズ${odds}倍・AI確率${prob}%。展開次第で一撃候補。`;
-      }
-
-      if(
-        x.scenario === '逃げ'
-        &&
-        a !== Number(x.main)
-      ){
-        return `逃げ想定を崩す波乱パターン。高オッズ${odds}倍を狙いつつ、AI確率${prob}%を確保。`;
-      }
-
-      if(
-        x.scenario === '差し'
-        ||
-        x.scenario === 'まくり・まくり差し'
-      ){
-        return `差し・まくり系の展開を想定した波乱狙い。オッズ${odds}倍・AI確率${prob}%。`;
-      }
-
-      return `高配当を狙える穴目。オッズ${odds}倍以上かつAI確率${prob}%を確保。`;
-    }
-
-    // 👹 鬼しぼり
-    if(category === 'oni'){
-      if(oniFromGachi){
-        return `ガチガチ${gachi.length}点から的中確率を優先して${oni.length}点に厳選。同じ確率なら期待倍率を優先。AI確率${prob}%・オッズ${odds}倍・期待倍率${ev}。`;
-      }
-      return `旧ルールで保存した買い目です。全買い目から期待値を重視して選出。AI確率${prob}%・オッズ${odds}倍・期待倍率${ev}。`;
-    }
-
-    return 'AIによる候補判定';
-  }
-
-  function betRow(
-    bet,
-    index,
-    category
-  ){
-
-    const ev =
-      bet.ev == null
-        ? null
-        : Number(bet.ev);
-
-    const evClass =
-      ev == null
-        ? 'mid'
-        : ev >= 1
-          ? 'good'
-          : ev >= 0.8
-            ? 'mid'
-            : 'low';
-
-    return `
-      <tr>
-
-        <td>
-          ${index + 1}
-        </td>
-
-        <td>
-          <b>${bet.bet}</b>
-        </td>
-
-        <td>
-          ${(
-            Number(
-              bet.probability || 0
-            ) * 100
-          ).toFixed(2)}%
-        </td>
-
-        <td>
-          ${bet.odds ?? '-'}倍
-        </td>
-
-        <td class="${evClass}">
-          ${ev == null
-            ? '-'
-            : ev.toFixed(2)}
-        </td>
-
-        <td style="font-size:12px;line-height:1.5">
-          ${getReason(
-            bet,
-            category
-          )}
-        </td>
-
-      </tr>
-    `;
-  }
-
-  // 🔥 ガチガチ
-  document.getElementById(
-    'betsGachi'
-  ).innerHTML =
-    gachi
-      .map(
-        (b,i) =>
-          betRow(
-            b,
-            i,
-            'gachi'
-          )
-      )
-      .join('');
-
-  // 🚀 ロマン砲
-  document.getElementById(
-    'betsRoman'
-  ).innerHTML =
-    roman
-      .map(
-        (b,i) =>
-          betRow(
-            b,
-            i,
-            'roman'
-          )
-      )
-      .join('');
-
-  // 👹 鬼しぼり
-  if(oni.length === 0){
-
-    document.getElementById(
-      'betsOni'
-    ).innerHTML = `
-      <tr>
-        <td colspan="6"
-            style="
-              padding:20px;
-              text-align:center;
-              font-weight:bold;
-            ">
-          👹 買い目なし
-          <br>
-          <small>
-            ${oniFromGachi
-              ? 'ガチガチの候補がないため、鬼しぼりもありません。'
-              : '保存時の旧ルールではEV 1.00以上の候補がなく、見送りでした。'}
-          </small>
-        </td>
-      </tr>
-    `;
-
-  }else{
-
-    document.getElementById(
-      'betsOni'
-    ).innerHTML =
-      oni
-        .map(
-          (b,i) =>
-            betRow(
-              b,
-              i,
-              'oni'
-            )
-        )
-        .join('');
   }
 }
 async function settlePrediction(){
@@ -1698,6 +1530,13 @@ async function batchSettle(allVenues=false){
 });
 document.getElementById('perfScope').addEventListener('change',loadPerformanceStatus);
 document.getElementById('perfStadium').addEventListener('change',loadPerformanceStatus);
+for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
+  document.getElementById('perfDaily'+id+'HitRate').addEventListener('click',()=>openDailyHits(category));
+}
+document.getElementById('perfHitsClose').addEventListener('click',closeDailyHits);
+document.getElementById('perfHitsDialog').addEventListener('close',()=>{
+  if(!document.getElementById('perfHitsDialog').open) performanceHitsCategory='';
+});
 document.getElementById('perfDate').addEventListener('change',()=>{
   performanceFollowingToday=document.getElementById('perfDate').value===performanceTodayDate();
   loadPerformanceStatus();

@@ -82,7 +82,8 @@ async function run() {
   assert.equal(narrowed.elements.get('oniSelectionBasis').textContent,'ガチガチから3点');
   const newRows=narrowed.elements.get('betsOni').innerHTML;
   assert.equal((newRows.match(/<tr>/g)||[]).length,3);
-  assert.match(newRows,/ガチガチ10点から的中確率を優先して3点に厳選/);
+  assert.doesNotMatch(newRows,/推定確率|期待倍率|推奨理由|AI確率/);
+  assert.equal((newRows.match(/<td>/g)||[]).length,6);
   assert.doesNotMatch(newRows,/見送り|旧ルール|6-1-5/);
   assert.ok(narrowed.calls.every(call=>!call.options?.method));
   console.log('PASS: New Oni forecasts show the three saved Gachi selections even below EV 1 without regenerating them.');
@@ -95,7 +96,7 @@ async function run() {
   await legacy.run('loadSelectedSavedPrediction()');
   assert.equal(legacy.elements.get('oniSelectionBasis').textContent,'旧ルールの保存予想');
   assert.match(legacy.elements.get('betsOni').innerHTML,/6-1-5/);
-  assert.match(legacy.elements.get('betsOni').innerHTML,/旧ルールで保存/);
+  assert.doesNotMatch(legacy.elements.get('betsOni').innerHTML,/推定確率|期待倍率|推奨理由/);
   assert.doesNotMatch(legacy.elements.get('betsOni').innerHTML,/ガチガチ10点から/);
   assert.equal(JSON.stringify(oldPrediction),oldSnapshot);
   assert.ok(legacy.calls.every(call=>!call.options?.method));
@@ -105,6 +106,28 @@ async function run() {
   assert.match(narrowed.elements.get('betsOni').innerHTML,/ガチガチの候補がない/);
   assert.doesNotMatch(narrowed.elements.get('betsOni').innerHTML,/EV 1.00/);
   console.log('PASS: An empty new forecast explains missing Gachi candidates rather than the removed EV cutoff.');
+
+  const compact=context();
+  const unsorted={...prediction,bets:['gachi','roman','oni'].flatMap(category=>[
+    {category,bet:'2-1-5',odds:16.8,probability:.6,ev:10.08},
+    {category,bet:'1-5-3',odds:38.1,probability:.3,ev:11.43},
+    {category,bet:'1-2-5',odds:12,probability:.05,ev:.6},
+    {category,bet:'1-2-3',odds:23.7,probability:.05,ev:1.185},
+  ])};
+  const beforeSort=JSON.stringify(unsorted);
+  compact.ctx.testPrediction=unsorted;
+  compact.run('renderAnalysis(testPrediction)');
+  for(const id of ['Gachi','Roman','Oni']){
+    const rows=compact.elements.get('bets'+id).innerHTML;
+    assert.deepEqual([...rows.matchAll(/<b>([^<]+)<\/b>/g)].map(match=>match[1]),
+      ['1-2-3','1-2-5','1-5-3','2-1-5']);
+    assert.equal((rows.match(/<td>/g)||[]).length,8);
+    assert.match(rows,/<b>1-2-3<\/b><\/td><td>23.7倍/);
+    assert.doesNotMatch(rows,/%|推定確率|期待倍率|推奨理由/);
+  }
+  assert.equal(JSON.stringify(unsorted),beforeSort);
+  assert.equal(compact.calls.length,0);
+  console.log('PASS: Every category shows only numeric-order combinations and their own odds, preserving the saved selection order and all prediction data.');
 
   const rates=context(); await rates.run('loadPerformanceStatus()');
   assert.equal(rates.elements.get('perfGachiRoi').textContent,'99.0%');
