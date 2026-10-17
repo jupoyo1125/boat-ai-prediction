@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import requests
 
+from prediction_features import FEATURE_SCHEMA
 from state_store import state_connection, require_storage_writable, strict_state_reads
 
 JST = timezone(timedelta(hours=9))
@@ -153,8 +154,16 @@ def complete_exhibition(prediction):
     boats = prediction.get('boats') or []
     if len(boats) != 6 or {b.get('boat') for b in boats} != set(range(1, 7)):
         return False
+    schema = prediction.get('feature_schema')
+    if schema not in (None, FEATURE_SCHEMA):
+        return False
+    checks = [('exhibition', 5, 9)]
+    # Current four-feature snapshots intentionally do not save exhibition ST.
+    # Keep the stricter requirement for legacy snapshots, without inventing ST.
+    if schema != FEATURE_SCHEMA:
+        checks.append(('exhibition_st', -1, 1))
     for boat in boats:
-        for key, low, high in [('exhibition', 5, 9), ('exhibition_st', -1, 1)]:
+        for key, low, high in checks:
             value = boat.get(key)
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or not low < value < high):
@@ -165,6 +174,8 @@ def complete_exhibition(prediction):
 def caption(row, promotion=None):
     """Copy saved rankings and all three buy lists; never re-run the model."""
     prediction = row['prediction']
+    current_features = prediction.get('feature_schema') == FEATURE_SCHEMA
+    exhibition_label = '展示タイム' if current_features else '展示タイム・展示ST'
     boats = {b['boat']: b for b in prediction['boats']}
     marks = ' ①②③④⑤⑥'
     picks = [prediction.get(key) for key in ('main', 'second', 'hole')]
@@ -179,9 +190,12 @@ def caption(row, promotion=None):
         name = re.sub(r'\s+', '', name_part)
         if not name or len(name) > 12:
             raise ValueError('invalid racer name')
-        st = boat['exhibition_st']
-        st_text = ('F' if st < 0 else '') + f'{abs(st):.2f}'
-        lines.append(f'{label}{marks[number]}{name}（展示{boat["exhibition"]:.2f}／ST{st_text}）')
+        detail = f'展示{boat["exhibition"]:.2f}'
+        if not current_features:
+            st = boat['exhibition_st']
+            st_text = ('F' if st < 0 else '') + f'{abs(st):.2f}'
+            detail += f'／ST{st_text}'
+        lines.append(f'{label}{marks[number]}{name}（{detail}）')
     groups = []
     bets = row.get('bets') or []
     if not bets or any(b.get('category') not in ('gachi', 'roman', 'oni') for b in bets):
@@ -200,7 +214,7 @@ def caption(row, promotion=None):
         # but never put the selected racers or actual buy lists in this post.
         text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜無料予想LINE🚤】\n\n'
                 'このレースの展示後予想は、LINEで無料配信🙌\n'
-                '独自サイトが展示タイム・展示STを反映した予想をお届けします。\n\n'
+                f'独自サイトが{exhibition_label}を反映した予想をお届けします。\n\n'
                 '🎯ガチガチ／🚀ロマン砲／👹鬼しぼり\n'
                 '3タイプの買い目はLINEでチェック！\n\n'
                 '友だち追加後、「20歳以上・配信希望」をタップ👇\n'
@@ -209,11 +223,11 @@ def caption(row, promotion=None):
         if len(text) > 500:
             raise ValueError('post text exceeds the allowed format')
         return text
-    text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後AI予想🚤】\n'
-            '独自作成のAI予想サイトでは、以下の予想です。\n\n'
+    text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後・独自サイト予想🚤】\n'
+            '独自サイト予想の保存内容です。\n\n'
             + '\n'.join(lines) + '\n\n' + '\n\n'.join(groups)
             + f'\n\n{timestamp(row["prediction_saved_at"]):%H:%M}保存／'
-              f'締切{timestamp(row["scheduled_deadline"]):%H:%M}\n展示タイム・展示ST反映済み')
+              f'締切{timestamp(row["scheduled_deadline"]):%H:%M}\n{exhibition_label}反映済み')
     if len(text) > 500 or re.search(r'https?://|www\.|onrender\.com', text, re.I):
         raise ValueError('post text exceeds the allowed format')
     return text
