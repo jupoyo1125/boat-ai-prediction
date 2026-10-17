@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 
 from flask import jsonify, request
 import requests
+from model import feature_schema
+from prediction_features import FEATURE_SCHEMA
 
 
 def batch_target(core, data, limit):
@@ -34,7 +36,8 @@ def analyze_batch(core, date, jcd, races, fixed, days):
     # The model is read once and shared only for scoring, never modified here.
     state = core.load_model()
     history_end = (datetime.strptime(date, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
-    hist = core.historical_stats(jcd, days, history_end)
+    hist = (core.course_history.get(date) if feature_schema(state) == FEATURE_SCHEMA
+            else core.historical_stats(jcd, days, history_end))
     predictions, outcomes = {}, {}
     with ThreadPoolExecutor(max_workers=3) as workers:
         jobs = {race: workers.submit(core.predict_race, date, jcd, race,
@@ -48,6 +51,7 @@ def analyze_batch(core, date, jcd, races, fixed, days):
                     'date': date, 'stadium': jcd, 'race': race,
                     'combo': str(bets[0]['bet']).replace('-', '') if bets else '',
                     'predicted_first': prediction['main'], 'features': prediction.get('features') or {},
+                    'feature_schema': prediction.get('feature_schema'),
                     'bets': bets, 'investment': 100, 'payout': 0, 'note': '一括AI分析',
                 })
             except Exception:
@@ -144,6 +148,12 @@ def register_batch_routes(core):
             return jsonify({'ok': False, 'code': 'invalid_batch', 'error': str(error)}), 400
         try:
             return jsonify({'ok': True, 'results': analyze_batch(core, date, jcd, races, fixed, days)})
+        except core.CourseHistoryPending as error:
+            response = jsonify({'ok': False, 'code': 'course_history_pending', 'error': str(error),
+                                'ready_days': error.ready, 'total_days': error.total})
+            response.status_code = 503
+            response.headers['Retry-After'] = '30'
+            return response
         except Exception:
             core.app.logger.exception('Batch prediction storage failed')
             return jsonify({'ok': False, 'code': 'storage_failed',

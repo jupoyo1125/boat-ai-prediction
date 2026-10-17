@@ -37,7 +37,7 @@ class AnalysisTimeoutTests(unittest.TestCase):
             with mock.patch.object(core, '_official_pool', pool), \
                     mock.patch.object(core, 'OFFICIAL_PAGE_WAIT_SECONDS', .03), \
                     mock.patch.object(core, 'get', side_effect=stalled), \
-                    mock.patch.object(core, 'load_model') as load, \
+                    mock.patch.object(core, 'load_model', return_value=copy.deepcopy(model.LEGACY_DEFAULT)) as load, \
                     mock.patch.object(core, 'save_ledger') as save:
                 try:
                     started = time.monotonic()
@@ -47,7 +47,7 @@ class AnalysisTimeoutTests(unittest.TestCase):
                     self.assertEqual(response.json['code'], 'analysis_timeout')
                     self.assertEqual(response.headers['Retry-After'], '5')
                     self.assertEqual(response.headers['Cache-Control'], 'no-store')
-                    load.assert_not_called(); save.assert_not_called()
+                    load.assert_called_once(); save.assert_not_called()
                 finally:
                     release.set()
         self.assertEqual(len(urls), 3)
@@ -58,7 +58,7 @@ class AnalysisTimeoutTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=3) as pool:
             with mock.patch.object(core, '_official_pool', pool), \
                     mock.patch.object(core, 'ANALYSIS_WAIT_SECONDS', .03), \
-                    mock.patch.object(core, 'historical_stats', return_value={'races': 0}), \
+                    mock.patch.object(core.course_history, 'get', return_value={'totals': {}}), \
                     mock.patch.object(core, 'load_model', return_value=copy.deepcopy(model.DEFAULT)), \
                     mock.patch.object(core, 'get', side_effect=lambda *a, **k: release.wait(1) or ''), \
                     mock.patch.object(core, 'analyze') as score:

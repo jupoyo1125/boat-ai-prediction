@@ -6,6 +6,7 @@ from unittest import mock
 
 import app as core
 import model
+from test_prediction_features import snapshot
 
 
 RACELIST = '<table>' + ''.join(
@@ -21,7 +22,7 @@ class RankingPreviewTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.urls = []
         self.racelist = RACELIST
-        self.stack.enter_context(mock.patch.object(core, 'historical_stats', return_value=HISTORY))
+        self.stack.enter_context(mock.patch.object(core.course_history, 'get', return_value=snapshot('20261016')))
         self.stack.enter_context(mock.patch.object(core, 'load_model', return_value=copy.deepcopy(model.DEFAULT)))
         self.stack.enter_context(mock.patch.object(core, 'submit_official_page', side_effect=self.page))
         self.save = self.stack.enter_context(mock.patch.object(core, 'save_ledger'))

@@ -247,7 +247,7 @@ class HistoricalTests(unittest.TestCase):
         state = historical.read_job()
         state.update(phase='completed', enabled=False)
         state['model']['samples'] = 1000
-        state['model']['weights']['nation'] = .30
+        state['model']['weights']['motor'] = .30
         historical.write_job(state)
         live = copy.deepcopy(model.DEFAULT)
         live.update(samples=855, hits=262)
@@ -257,7 +257,7 @@ class HistoricalTests(unittest.TestCase):
         after = model.load()
         self.assertEqual(after['samples'], 855)
         self.assertEqual(after['hits'], 262)
-        self.assertEqual(after['weights']['nation'], .30)
+        self.assertEqual(after['weights']['motor'], .30)
         self.assertEqual(after['historical_training']['samples'], 1000)
         self.assertEqual(historical.read_job()['model_backup'], before)
         with mock.patch.object(core, 'save_model') as save:
@@ -294,14 +294,14 @@ class HistoricalTests(unittest.TestCase):
             return entry if 'racelist?' in url else '<title>直前情報</title>' + MINIMAL_BEFORE if 'beforeinfo?' in url else odds
         runner = historical.HistoricalRunner(core, fetch_html=fetch)
         hist = previous_history([], '20161009', '10')
-        fixed = copy.deepcopy(model.DEFAULT)
+        fixed = copy.deepcopy(model.LEGACY_DEFAULT)
         with mock.patch.object(core, 'load_model', side_effect=AssertionError('live model must not be used')):
             first = runner.forecast('20161009', official(combo='123'), hist, fixed)
             second = runner.forecast('20161009', official(combo='654'), hist, fixed)
         self.assertEqual(first, second)
         self.assertEqual(len(first['features']), 6)
         self.assertTrue(first['bets'])
-        self.assertEqual(fixed, model.DEFAULT)
+        self.assertEqual(fixed, model.LEGACY_DEFAULT)
 
     def test_projection_and_context_cache_avoid_reloading_results_on_each_checkpoint(self):
         state = self.job(days=1, races=1)

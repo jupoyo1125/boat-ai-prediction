@@ -14,6 +14,7 @@ import requests
 import app as core
 import model
 import state_store
+from test_prediction_features import snapshot
 from test_automation import BEFORE
 from batch_processing import settle_batch
 
@@ -160,7 +161,7 @@ class BatchTests(unittest.TestCase):
             if race == 3: raise requests.ReadTimeout()
             return forecast()
         with mock.patch.object(core, 'predict_race', side_effect=predict), \
-                mock.patch.object(core, 'historical_stats', return_value={}), \
+                mock.patch.object(core.course_history, 'get', return_value=snapshot('20261007')), \
                 mock.patch.object(core, 'load_model', wraps=core.load_model) as load, \
                 mock.patch.object(core, 'save_ledger', wraps=core.save_ledger) as save:
             response = self.post('analyze_batch', [1,2,3])
@@ -208,7 +209,7 @@ class BatchTests(unittest.TestCase):
         before = BEFORE
         path = ROOT/'fixtures/mikuni-racelist.html'
         entries = path.read_text() if path.exists() else MINIMAL_ENTRIES
-        hist = {'races': 0, 'first_win_rate': {str(i): 0 for i in range(1,7)}}
+        hist = snapshot('20261007')
         def get(url, **kwargs):
             return before if 'beforeinfo' in url else entries if 'racelist' in url else '<p></p>'
         state = copy.deepcopy(model.DEFAULT)
@@ -217,13 +218,13 @@ class BatchTests(unittest.TestCase):
         expected_bets = core.build_bets(boats, odds, 'none',
                                         core.scenario(boats, core.parse_before(before)), model=state)
         with mock.patch.object(core, 'get', side_effect=get), \
-                mock.patch.object(core, 'historical_stats', return_value=hist) as history, \
+                mock.patch.object(core.course_history, 'get', return_value=hist) as history, \
                 mock.patch.object(core, 'load_model', return_value=state) as load, \
                 mock.patch.object(core, 'parse_odds', return_value=odds):
             result = core.predict_race('20261007', '10', 1)
         self.assertEqual(result['bets'], expected_bets)
         self.assertEqual(result['boats'], sorted(boats,key=lambda row:row['score'],reverse=True))
-        load.assert_called_once(); history.assert_called_once_with('10',3,'20261006')
+        load.assert_called_once(); history.assert_called_once_with('20261007')
 
     def test_bulk_ledger_save_writes_changed_rows_once_and_skips_unchanged_rows(self):
         previous = [{'id':'keep','note':'保存済み'}, {'id':'update','value':1}, {'id':'remove'}]

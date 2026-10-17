@@ -1,5 +1,8 @@
 import json
 import os
+import copy
+import math
+from prediction_features import FEATURE_SCHEMA, FEATURE_KEYS
 from datetime import datetime
 from state_store import (
     state_connection, in_state_transaction, atomic_write_json, storage_required,
@@ -8,7 +11,7 @@ from state_store import (
 
 PATH = os.path.join(os.path.dirname(__file__), "model_state.json")
 
-DEFAULT = {
+LEGACY_DEFAULT = {
     "weights": {
         "nation": 0.28,
         "local": 0.11,
@@ -23,6 +26,30 @@ DEFAULT = {
     "hits": 0,
     "updated_at": None,
 }
+
+
+DEFAULT = {
+    'feature_schema': FEATURE_SCHEMA,
+    'weights': {key: 0.25 for key in FEATURE_KEYS},
+    'temperature': 12.0, 'samples': 0, 'hits': 0,
+    'feature_samples': 0, 'feature_hits': 0, 'updated_at': None,
+}
+
+
+def feature_schema(state):
+    return state.get('feature_schema') or (
+        FEATURE_SCHEMA if set(state.get('weights', {})) == set(FEATURE_KEYS) else 'legacy-v1')
+
+
+def upgrade_state(state):
+    if feature_schema(state) == FEATURE_SCHEMA:
+        return state
+    updated = copy.deepcopy(DEFAULT)
+    # The old evidence belongs to a different feature definition. Keep it for
+    # audit and keep lifetime counters, but start four-feature learning afresh.
+    updated.update(samples=state.get('samples', 0), hits=state.get('hits', 0),
+                   legacy_model=copy.deepcopy(state))
+    return updated
 
 
 def _database_url():
@@ -59,8 +86,9 @@ def _default_state():
 
 
 def _normalize_state(state):
-    weights = DEFAULT["weights"].copy()
-    weights.update(state.get("weights", {}))
+    basis = DEFAULT if feature_schema(state) == FEATURE_SCHEMA else LEGACY_DEFAULT
+    weights = basis["weights"].copy()
+    weights.update({k: v for k, v in state.get("weights", {}).items() if k in weights})
 
     state["weights"] = weights
     state["temperature"] = max(
@@ -89,7 +117,7 @@ def load():
                 if isinstance(state, str):
                     state = json.loads(state)
 
-                return _normalize_state(state)
+                return upgrade_state(_normalize_state(state))
 
             state = _default_state()
             save(state)
@@ -106,7 +134,7 @@ def load():
 
     try:
         with open(PATH, "r", encoding="utf-8") as f:
-            return _normalize_state(json.load(f))
+            return upgrade_state(_normalize_state(json.load(f)))
 
     except Exception:
         return _default_state()
@@ -193,6 +221,19 @@ def learn_from_features(
     state["samples"] += 1
     state["hits"] += hit
 
+    if feature_schema(state) == FEATURE_SCHEMA:
+        def compatible(values):
+            return isinstance(values, dict) and all(
+                isinstance(values.get(key), (int, float))
+                and math.isfinite(values[key]) and 0 <= values[key] <= 100
+                for key in FEATURE_KEYS)
+        if not compatible(predicted_features) or not compatible(actual_features):
+            state['legacy_settlements'] = int(state.get('legacy_settlements', 0)) + 1
+            finish_learning(state, persist)
+            return state, bool(hit)
+        state['feature_samples'] = int(state.get('feature_samples', 0)) + 1
+        state['feature_hits'] = int(state.get('feature_hits', 0)) + hit
+
     weights = state.get("weights", {})
 
     # --------------------------------------------------
@@ -203,7 +244,7 @@ def learn_from_features(
         and isinstance(actual_features, dict)
         and actual_features
     ):
-        samples = int(state.get("samples", 1))
+        samples = int(state.get("feature_samples", state.get("samples", 1)))
         learning_rate = max(
             0.0025,
             0.008 * (100.0 / (100.0 + samples)) ** 0.5
@@ -299,6 +340,10 @@ def learn_from_record(
 
     state["samples"] += 1
     state["hits"] += hit
+    if feature_schema(state) == FEATURE_SCHEMA:
+        state['legacy_settlements'] = int(state.get('legacy_settlements', 0)) + 1
+        finish_learning(state, persist)
+        return state, bool(hit)
 
     temperature = float(
     state.get("temperature", 12.0)
