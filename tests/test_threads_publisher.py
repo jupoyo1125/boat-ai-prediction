@@ -69,7 +69,7 @@ class PublisherTests(unittest.TestCase):
 
     def test_body_preserves_all_categories_without_any_site_link(self):
         text = tp.caption(self.row)
-        self.assertIn('独自作成のAI予想サイトでは、', text)
+        self.assertIn('独自サイト予想の保存内容です。', text)
         self.assertIn('ガチガチ10点', text)
         self.assertIn('ロマン砲10点', text)
         self.assertIn('鬼しぼり3点', text)
@@ -216,6 +216,74 @@ class PublisherTests(unittest.TestCase):
         self.store.enqueue([tp.candidate(self.row, self.config, self.now)])
         self.publisher.run_once()
         self.client.create.assert_called_once_with(first['text'])
+
+
+class CurrentFeaturePublisherTests(unittest.TestCase):
+    def setUp(self):
+        self.row = forecast()
+        self.row['feature_schema'] = tp.FEATURE_SCHEMA
+        self.row['prediction']['feature_schema'] = tp.FEATURE_SCHEMA
+        for boat in self.row['prediction']['boats']:
+            boat['feature_schema'] = tp.FEATURE_SCHEMA
+            boat.pop('exhibition_st')
+        self.now = datetime(2026, 10, 15, 10, 20, tzinfo=tp.JST)
+        self.config = tp.Config('20261015', 2, 'private-current-feature-token')
+        configured = mock.patch('automation.configured', return_value=True)
+        configured.start(); self.addCleanup(configured.stop)
+
+    def test_current_saved_format_can_publish_without_exhibition_st(self):
+        self.assertTrue(tp.complete_exhibition(self.row['prediction']))
+        entry = tp.candidate(self.row, self.config, self.now)
+        self.assertIsNotNone(entry)
+        self.assertIn('本命①選手1（展示6.70）', entry['text'])
+        self.assertIn('展示タイム反映済み', entry['text'])
+        self.assertIn('独自サイト予想', entry['text'])
+        self.assertNotIn('ST', entry['text'])
+        self.assertNotIn('AI予想', entry['text'])
+        for bet in self.row['bets']:
+            self.assertIn(bet['bet'], entry['text'])
+        self.assertLessEqual(len(entry['text']), 500)
+
+    def test_invalid_or_missing_exhibition_still_blocks_current_predictions(self):
+        for value in [None, float('nan'), True, '6.70', 0, 10]:
+            with self.subTest(value=value):
+                self.row['prediction']['boats'][0]['exhibition'] = value
+                self.assertIsNone(tp.candidate(self.row, self.config, self.now))
+
+    def test_legacy_and_unknown_formats_do_not_bypass_exhibition_requirements(self):
+        self.row['prediction'].pop('feature_schema')
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now))
+        self.row['prediction']['feature_schema'] = 'unknown-future-schema'
+        for boat in self.row['prediction']['boats']:
+            boat['exhibition_st'] = 0.01
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now))
+
+    def test_current_format_keeps_deadline_and_settlement_guards(self):
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now.replace(minute=29)))
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now.replace(minute=31)))
+        self.row['settled'] = True
+        self.assertIsNone(tp.candidate(self.row, self.config, self.now))
+
+    def test_current_format_publishes_only_once_without_mutating_saved_picks(self):
+        original = copy.deepcopy(self.row)
+        core, client, store = mock.Mock(), mock.Mock(), MemoryStore()
+        core.load_ledger.return_value = [self.row]
+        client.create.return_value = 'current-container'
+        client.publish.return_value = 'current-post'
+        for _ in range(2):
+            tp.Publisher(core, self.config, store, client, clock=lambda: self.now).run_once()
+        client.publish.assert_called_once_with('current-container')
+        self.assertEqual(self.row, original)
+
+    def test_current_format_line_invitation_does_not_claim_to_use_st(self):
+        promotion = tp.LinePromotion('20261015', 2, 'https://lin.ee/rPOD0ur')
+        text = tp.caption(self.row, promotion)
+        self.assertIn('無料予想LINE', text)
+        self.assertIn('展示タイムを反映', text)
+        self.assertNotIn('展示ST', text)
+        self.assertNotIn('本命', text)
+        for bet in self.row['bets']:
+            self.assertNotIn(bet['bet'], text)
 
 
 class LinePromotionTests(unittest.TestCase):
