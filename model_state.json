@@ -1,1 +1,1 @@
-{"weights":{"nation":0.28,"local":0.11,"motor":0.17,"st":0.18,"exhibition":0.08,"exhibition_st":0.03,"history":0.15},"samples":0,"hits":0,"updated_at":null}
+{"feature_schema":"racer-course-year-v2","weights":{"motor":0.25,"exhibition":0.25,"meeting":0.25,"course":0.25},"temperature":12.0,"samples":0,"hits":0,"feature_samples":0,"feature_hits":0,"updated_at":null}

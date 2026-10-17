@@ -13,6 +13,8 @@ import time
 
 from flask import jsonify, request
 import model
+from prediction_features import FEATURE_SCHEMA, meeting_results
+from course_history_store import CourseHistoryPending
 from historical_archive import archive_url, decode_archive, parse_daily_results, previous_history, MAX_COMPRESSED
 from state_store import (atomic_state, atomic_write_json, database_url, state_connection,
                          storage_paused, require_storage_writable)
@@ -189,7 +191,9 @@ def public_status(state=None):
                   progress=round(state['days_done'] / total * 100, 2),
                   samples=state['model']['samples'], first_hits=state['model']['hits'],
                   category_stats=rates(state['category_stats']), recent=state['recent'],
-                  evaluation_basis='previous_day_model_and_closing_odds')
+                  evaluation_basis='previous_day_model_and_closing_odds',
+                  feature_schema=model.feature_schema(state['model']),
+                  feature_compatible=model.feature_schema(state['model']) == FEATURE_SCHEMA)
     return result
 
 
@@ -263,8 +267,20 @@ class HistoricalRunner:
                 or set(before['exhibition']) != set(range(1, 7))
                 or set(before['exhibition_st']) != set(range(1, 7))):
             return None
-        boats = self.core.analyze(raw, 'none', before, hist, model=day_model)
-        if any(row[key] is None for row in boats for key in ('nation', 'local', 'motor', 'st')):
+        current_features = model.feature_schema(day_model) == FEATURE_SCHEMA
+        if current_features:
+            # Even when inspecting an old race today, use only the preceding
+            # year of results and meeting races completed before that race.
+            hist = self.core.course_history.get(date)
+            if set(before.get('entry_course', {})) != set(range(1, 7)):
+                return None
+            boats = self.core.analyze(raw, 'none', before, hist, model=day_model,
+                                      meeting=meeting_results(entry_html, date, race, jcd))
+            required = ('motor', 'exhibition')
+        else:
+            boats = self.core.analyze(raw, 'none', before, hist, model=day_model)
+            required = ('nation', 'local', 'motor', 'st')
+        if any(row[key] is None for row in boats for key in required):
             return None
         html = self.fetch_html(prefix + 'odds3t' + query)
         if 'データはありません' in html or 'データがありません' in html:
@@ -367,6 +383,12 @@ class HistoricalRunner:
             return False
         try:
             return self.prepare_day(state) if state['results'] is None else self.process_batch(state)
+        except CourseHistoryPending as error:
+            updated = copy.deepcopy(state)
+            updated.update(phase='course_preparing', error=str(error),
+                           retry_at=(now_jst() + timedelta(seconds=60)).isoformat(timespec='seconds'))
+            checkpoint(state, updated)
+            return False
         except OfficialRequestBusy:
             # A busy live connection cap must not exhaust the download retry budget.
             updated = copy.deepcopy(state)
@@ -419,6 +441,8 @@ def control(core, action):
                 raise ValueError('1年分の処理完了後、学習対象が1,000レース以上ある場合に適用できます。')
             if not state.get('model_applied_at'):
                 live = core.load_model()
+                if model.feature_schema(live) != model.feature_schema(state['model']):
+                    raise ValueError('この過去検証は旧特徴のモデルです。現在の4項目モデルには適用できません。')
                 state['model_backup'] = copy.deepcopy(live)
                 live['weights'] = copy.deepcopy(state['model']['weights'])
                 live['temperature'] = state['model']['temperature']

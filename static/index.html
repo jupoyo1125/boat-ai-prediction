@@ -11,7 +11,7 @@
 .hero{padding:24px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(circle at top right,#123453 0,#0d1b2d 48%,#0b1727 100%);box-shadow:0 15px 50px #0005}h1{margin:0 0 7px;font-size:30px}.sub{color:var(--muted);margin-bottom:20px}
 .controls{display:grid;grid-template-columns:1.2fr 1fr .7fr .9fr auto auto;gap:10px}select,input,button{width:100%;border-radius:11px;border:1px solid #29445e;background:#091727;color:var(--text);padding:12px;font-size:14px}button{background:linear-gradient(135deg,#1787e8,#3ab7ff);border:0;font-weight:800;cursor:pointer}button.secondary{background:#16314a;border:1px solid #2c5777}button:disabled{opacity:.55}
 .grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px;margin-top:16px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}.panel h2{font-size:17px;margin:0 0 15px}
-.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.boat{background:var(--panel2);border:1px solid #24415c;border-radius:13px;padding:12px}.boat .num{font-size:22px;font-weight:900}.boat .name{font-weight:700;margin:4px 0 8px}.score{font-size:22px;font-weight:900;color:var(--accent2)}.bar{height:5px;background:#1d344b;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1c8ee9,#73dcff)}
+.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.boat{background:var(--panel2);border:1px solid #24415c;border-radius:13px;padding:12px}.boat{min-width:0}.boat small{display:block;line-height:1.7;overflow-wrap:anywhere;margin-top:6px}.boat .num{font-size:22px;font-weight:900}.boat .name{font-weight:700;margin:4px 0 8px}.score{font-size:22px;font-weight:900;color:var(--accent2)}.bar{height:5px;background:#1d344b;border-radius:9px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1c8ee9,#73dcff)}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.metric{padding:12px;background:var(--panel2);border-radius:12px}.metric small{display:block;color:var(--muted)}.metric b{display:block;margin-top:4px;font-size:18px}
 .status{margin-top:12px;padding:11px;border-radius:10px;background:#0b1c2d;color:#bfe8ff;font-size:13px}.scenario{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.pill{padding:8px 11px;border-radius:999px;background:#132a40;border:1px solid #28506f;color:#bfe8ff}.pill.active{background:#114b73;border-color:#38aaff;color:white}
 #scheduleNotice:empty,#scheduleRetry[hidden]{display:none}
@@ -251,7 +251,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 
 <div class="metrics">
 <div class="metric">
-<small>学習レース数</small>
+<small>新方式の運用学習</small>
 <b id="learnSamples">-</b>
 </div>
 
@@ -277,6 +277,7 @@ AIが現在重視している特徴
 </div>
 
 <div id="learnWeights"></div>
+<p id="learnBasis" class="performance-period-note">モーター・展示タイム・節間成績・選手別コース1年成績を使います。</p>
 </div>
 </section>
 <section class="panel" style="margin-top:16px">
@@ -746,8 +747,9 @@ async function loadSchedule(){
   if(!r.ok||!x.ok) return;
 
   const m=x.model||{};
-  const samples=Number(m.samples||0);
-  const hits=Number(m.hits||0);
+  const current=m.feature_schema==='racer-course-year-v2';
+  const samples=Number((current?m.feature_samples:m.samples)||0);
+  const hits=Number((current?m.feature_hits:m.hits)||0);
   const rate=samples?((hits/samples)*100).toFixed(1):'0.0';
 
   document.getElementById('learnSamples').textContent=samples+'回';
@@ -755,15 +757,14 @@ async function loadSchedule(){
   document.getElementById('learnRate').textContent=rate+'%';
   document.getElementById('learnTemp').textContent=Number(m.temperature||0).toFixed(2);
 
-  const names={
-   nation:'全国勝率',
-   local:'当地勝率',
-   motor:'モーター',
-   st:'ST',
-   exhibition:'展示タイム',
-   exhibition_st:'展示ST',
-   history:'過去実績'
-  };
+  const names=current ? {
+   motor:'モーター2連対率', exhibition:'展示タイム', meeting:'節間成績',
+   course:'選手別・コース別 過去1年の1・2・3着率'
+  } : {nation:'全国勝率（旧）',local:'当地勝率（旧）',motor:'モーター（旧）',
+       st:'ST（旧）',exhibition:'展示タイム（旧）',exhibition_st:'展示ST（旧）',history:'過去実績（旧）'};
+  document.getElementById('learnBasis').textContent=current ?
+   'コース成績は展示の進入順で参照し、1・2・3着率を各着順の評価に使用。対象日前日までの暦1年を集計します。節間成績は対象レース前の確定着順です。データなし・進入未確定は中立評価。初期の重みは各25%、結果から更新します。旧方式を含む通算の照合は '+Number(m.samples||0).toLocaleString('ja-JP')+'Rです。' :
+   '旧方式で保存されたモデルの学習状況です。';
 
   const weights=m.weights||{};
   const max=Math.max(...Object.values(weights).map(Number),0.01);
@@ -878,14 +879,15 @@ function renderHistorical(status){
   start.disabled=completed||active;
   document.getElementById('historyPause').disabled=!active;
   const apply=document.getElementById('historyApply');
-  apply.disabled=!completed||Number(status.samples||0)<1000||Boolean(status.model_applied_at);
+  apply.disabled=!completed||Number(status.samples||0)<1000||Boolean(status.model_applied_at)||status.feature_compatible===false;
   apply.textContent=status.model_applied_at ? '学習モデルを本番に適用済み' : '完了した学習モデルを本番に適用';
-  const phase={queued:'開始・再開待ち',running:'検証・学習中',retry:'通信の復旧を待っています',live_priority:'自動予想を優先しています',paused:'一時停止中',error:'取得を停止しています',completed:'全期間の処理が完了しました'}[status.phase]||'未開始';
+  const phase={queued:'開始・再開待ち',running:'検証・学習中',retry:'通信の復旧を待っています',live_priority:'自動予想を優先しています',course_preparing:'選手別コース1年成績を準備しています',paused:'一時停止中',error:'取得を停止しています',completed:'全期間の処理が完了しました'}[status.phase]||'未開始';
   let message=formatDate(status.start_date)+' ～ '+formatDate(status.end_date)+'｜'+phase;
   if(status.exists && !completed) message+='｜処理中の日付：'+formatDate(status.cursor);
   if(status.error) message+='。'+status.error;
   message+='。オッズ不足 '+count(status.missing_odds)+'R、出走・展示不足 '+count(status.missing_features)+'R、返還・不完全な結果など '+count(status.excluded_results)+'R。';
   message+=' 学習は過去検証用モデルに保存されます。本番に適用するまでは、現在の学習モデルで自動予想を続けます。';
+  if(status.feature_compatible===false) message+=' この検証は旧特徴の条件で継続中です。現在の4項目モデルには適用できません。';
   document.getElementById('historyStatus').textContent=message;
   renderPerformanceCategories('historyPerf',status.category_stats,false);
 }
@@ -1089,7 +1091,7 @@ async function analyze(){
   renderAnalysis(x);
   const bets=Array.isArray(x.bets)?x.bets:[];
   const firstBet=bets.length?String(bets[0].bet).replace(/-/g,''):'';
-  lastPrediction={...p, predicted_first:x.main, combo:firstBet, bets:bets, features:x.features||{}, investment:investment};
+  lastPrediction={...p, predicted_first:x.main, combo:firstBet, bets:bets, features:x.features||{}, feature_schema:x.feature_schema, investment:investment};
   let saveR;
   let saved;
   let saveLastError;
@@ -1120,6 +1122,7 @@ async function analyze(){
             predicted_first:x.main,
 
             features:x.features || {},
+            feature_schema:x.feature_schema,
 
             investment:investment,
 
@@ -1204,6 +1207,21 @@ async function analyze(){
   }
  }
 }
+function featureDetails(b){
+  const pct=value=>value==null ? '成績なし' : Number(value).toFixed(1)+'%';
+  const date=value=>String(value||'').replace(/^(\d{4})(\d{2})(\d{2})$/,'$1/$2/$3');
+  if(b.feature_schema!=='racer-course-year-v2'){
+    return `全国 ${b.nation??'-'} / 当地 ${b.local??'-'}<br>ST ${b.st??'-'} / 展示 ${b.exhibition??'-'}<br>旧方式の保存予想`;
+  }
+  const rates=b.course_rates||{};
+  const finishes=(b.meeting_finishes||[]).map(row=>row.place==null?'未完走':Number(row.place)+'着').join('・');
+  return `モーター2連対率 ${pct(b.motor)}<br>
+    展示タイム ${b.exhibition==null?'未公表':Number(b.exhibition).toFixed(2)+'秒'}<br>
+    節間 ${Number(b.meeting_count||0)}走：${finishes||'対象レース前の成績なし'}<br>
+    展示進入 ${b.entry_course?Number(b.entry_course)+'コース':'未確定'} / 過去1年 ${Number(rates.starts||0)}走<br>
+    1着 ${pct(rates.first)} / 2着 ${pct(rates.second)} / 3着 ${pct(rates.third)}<br>
+    ${date(b.course_start_date)}～${date(b.course_end_date)}`;
+}
 function renderAnalysis(x){
 
   document.getElementById('boats').innerHTML =
@@ -1221,11 +1239,7 @@ function renderAnalysis(x){
         </div>
 
         <small>
-          全国 ${b.nation??'-'}
-          / 当地 ${b.local??'-'}
-          <br>
-          ST ${b.st??'-'}
-          / 展示 ${b.exhibition??'-'}
+          ${featureDetails(b)}
         </small>
       </div>`
     ).join('');

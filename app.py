@@ -16,6 +16,9 @@ from odds_parser import parse_odds
 from official_http import OfficialRequestSlots, OfficialRequestBusy
 from official_results_cache import DailyResultsCache
 from historical_archive import archive_url, decode_archive, parse_daily_results, MAX_COMPRESSED
+from prediction_features import FEATURE_SCHEMA, FEATURE_KEYS, analyze_features, meeting_results
+from course_history_store import history as course_history, CourseHistoryPending
+from model import feature_schema as model_feature_schema
 from venue_schedule import VenueScheduleCache
 from model import (
     load as load_model,
@@ -65,7 +68,6 @@ HEAD = {'User-Agent': 'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
 LEDGER = Path('performance_ledger.json')
 BET_UNIT = 100
 BET_CATEGORIES = ('gachi', 'roman', 'oni')
-FEATURE_KEYS = ['nation', 'local', 'motor', 'st', 'exhibition', 'exhibition_st', 'history']
 # Shared by manual batches and the automatic runner. Never fan out by venue.
 _official_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='official')
 _official_slots = OfficialRequestSlots(3)
@@ -543,7 +545,7 @@ def value(cells, labels):
 def parse_before(html):
     soup = BeautifulSoup(unicodedata.normalize('NFKC', html), 'html.parser')
     text = soup.get_text(' ', strip=True)
-    out = {'wind':None,'wave':None,'air':None,'water':None,'exhibition':{},'exhibition_st':{}}
+    out = {'wind':None,'wave':None,'air':None,'water':None,'exhibition':{},'exhibition_st':{},'entry_course':{}}
     patterns = {
         'wind': r'風速\s*([0-9.]+)\s*m',
         'wave': r'波高\s*([0-9.]+)\s*cm',
@@ -565,15 +567,20 @@ def parse_before(html):
         if ex is not None and 5 <= ex <= 9:
             out['exhibition'][b] = ex
     # 展示STは「前走成績」のSTと別の、スタート展示の専用欄から読む。
+    entry_order = []
     for item in soup.select('.table1_boatImage1'):
         number = item.select_one('.table1_boatImage1Number')
         value_node = item.select_one('.table1_boatImage1Time')
         if number is None or value_node is None:
             continue
         b = boat_no(number.get_text(strip=True))
+        if b and b not in entry_order:
+            entry_order.append(b)
         st = value_node.get_text(strip=True).replace(' ', '')
         if b and re.fullmatch(r'F?\.\d{2}', st):
             out['exhibition_st'][b] = (-1 if st.startswith('F') else 1) * float(st.lstrip('F'))
+    if len(entry_order) == 6 and set(entry_order) == set(range(1, 7)):
+        out['entry_course'] = {boat: course for course, boat in enumerate(entry_order, 1)}
     return out
 
 def parse_resultlist(html):
@@ -763,7 +770,14 @@ def historical_stats(jcd, days=30, end_date=None):
             if payouts else None
     }
 
-def analyze(raw, fixed, before, hist, model=None):
+def analyze(raw, fixed, before, hist, model=None, meeting=None):
+    model = load_model() if model is None else model
+    if model_feature_schema(model) == FEATURE_SCHEMA:
+        return analyze_features(raw, fixed, before, hist, model, meeting or {})
+    return analyze_legacy(raw, fixed, before, hist, model)
+
+
+def analyze_legacy(raw, fixed, before, hist, model=None):
     rows = []
     for b in range(1, 7):
         c = raw.get(b, [])
@@ -870,6 +884,9 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
         for x in boats
     }
 
+    second_scores = {x['boat']: x.get('second_score', x['score']) for x in boats}
+    third_scores = {x['boat']: x.get('third_score', x['score']) for x in boats}
+
     temperature = float(
         (load_model() if model is None else model).get('temperature', 12.0)
     )
@@ -903,7 +920,7 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
         )[a - 1]
 
         p2 = _softmax(
-            [scores[x] for x in remaining],
+            [second_scores[x] for x in remaining],
             temperature
         )[remaining.index(b)]
 
@@ -913,7 +930,7 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
         ]
 
         p3 = _softmax(
-            [scores[x] for x in rem2],
+            [third_scores[x] for x in rem2],
             temperature
         )[rem2.index(c)]
 
@@ -1127,6 +1144,8 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
         + [dict(x, category='oni') for x in oni]
     )
 def feature_snapshot(boats):
+    if boats and boats[0].get('feature_schema') == FEATURE_SCHEMA:
+        return {str(row['boat']): {key: row[key + 's'] for key in FEATURE_KEYS} for row in boats}
     return {
         str(r['boat']): {
             'nation': r.get('nations', 50),
@@ -1231,6 +1250,7 @@ def performance_record(data):
         'hit': bool(actual and combo == actual), 'settled': bool(actual), 'learned': False,
         'predicted_first': int(data['predicted_first']) if str(data.get('predicted_first', '')).isdigit() else None,
         'features': data.get('features') or {}, 'bets': data.get('bets') or [],
+        'feature_schema': data.get('feature_schema'),
         'note': str(data.get('note', ''))[:300],
     }
     if 'bets' in data:
@@ -1873,6 +1893,13 @@ def api_analyze():
         response = jsonify(prediction)
         response.headers['Cache-Control'] = 'no-store'
         return response
+    except CourseHistoryPending as error:
+        response = jsonify({'ok': False, 'code': 'course_history_pending', 'error': str(error),
+                            'ready_days': error.ready, 'total_days': error.total})
+        response.status_code = 503
+        response.headers['Retry-After'] = '30'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     except requests.Timeout:
         response = jsonify({'ok': False, 'code': 'analysis_timeout',
                             'error': '公式データの取得に時間がかかっています。少し待って「AI予想」を押してください。'})
@@ -1902,8 +1929,11 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
     ).strftime('%Y%m%d')
 
     deadline = time.monotonic() + ANALYSIS_WAIT_SECONDS
+    if model is None:
+        model = load_model()
+    current_features = model_feature_schema(model) == FEATURE_SCHEMA
     if hist is None:
-        hist = historical_stats(jcd, days, history_end)
+        hist = course_history.get(date) if current_features else historical_stats(jcd, days, history_end)
     urls = [source] + ([] if ranking_only else [odds_source])
     urls += [before_source] if before is None else []
     pages = {url: submit_official_page(url, deadline) for url in urls}
@@ -1913,10 +1943,12 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
             model = load_model()
         if before is None:
             before = parse_before(await_official_page(pages[before_source], deadline))
-        entries = boats_from(await_official_page(pages[source], deadline))
+        entry_html = await_official_page(pages[source], deadline)
+        entries = boats_from(entry_html)
         if set(entries) != set(range(1, 7)):
             raise ValueError('6艇の出走表がそろっていません。次回再確認してください。')
-        boats = analyze(entries, fixed, before, hist, model=model)
+        meeting = meeting_results(entry_html, date, race, jcd) if current_features else {}
+        boats = analyze(entries, fixed, before, hist, model=model, meeting=meeting)
         odds = {} if ranking_only else parse_odds(await_official_page(pages[odds_source], deadline))
     finally:
         for page in pages.values():
@@ -1939,20 +1971,25 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         key=lambda x:x['score'],
         reverse=True
     )
+    history_info = ({key: hist[key] for key in ('start_date', 'end_date', 'days')}
+                    if current_features else hist)
+    basis_notice = ('モーター2連対率・展示タイム・対象レース前の節間成績・選手別の展示進入コースの過去1年の1～3着率'
+                    if current_features else f'公式出走表・展示と前日までの{hist["races"]}レース')
     result = {
         'ok':True,'venue':STADIUMS.get(jcd,jcd),'boats':boats,
         'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
         'scenario':scenario(boats,before),'bets':combos,
-        'history':hist,
+        'history':history_info, 'feature_schema': model_feature_schema(model),
         'features':feature_snapshot(boats),
         'weather':{'wind':before['wind'],'wave':before['wave'],'air':before['air'],'water':before['water']},
         'odds_count':sum(v is not None for v in odds.values()),
-        'notice':f'公式出走表・展示・3連単オッズと、前日までの{hist["races"]}レースを使った予想です。',
+        'notice':basis_notice + 'と3連単オッズを使った予想です。'
+                 + (' 展示進入未確定・成績なしの項目は中立評価です。' if current_features else ''),
         'source':source,'before_source':before_source,'odds_source':odds_source
     }
     if ranking_only:
         result.update(ranking_only=True, date=date, stadium=jcd, race=race,
-                      notice=f'公式出走表・取得時点の展示情報と、前日までの{hist["races"]}レースに基づく評価順です。オッズと買い目は含みません。')
+                      notice=basis_notice + 'に基づく取得時点の評価順です。展示進入未確定・成績なしの項目は中立評価です。オッズと買い目は含みません。')
     return result
 
 def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at, clock=None):
@@ -1973,6 +2010,7 @@ def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at
             'date': date, 'stadium': jcd, 'race': race,
             'combo': str(bets[0]['bet']).replace('-', '') if bets else '',
             'predicted_first': prediction['main'], 'features': prediction['features'],
+            'feature_schema': prediction.get('feature_schema'),
             'bets': bets, 'performance_version': 2,
             'prediction_origin': 'automatic',
             'prediction_saved_at': saved_at.isoformat(timespec='seconds'),
@@ -2007,6 +2045,7 @@ register_batch_routes(sys.modules[__name__])
 from historical import register_historical, public_status as historical_status
 register_historical(sys.modules[__name__])
 
+course_history.start(sys.modules[__name__])
 start_automation(sys.modules[__name__])
 
 from threads_publisher import start as start_threads_publisher, public_status as threads_status
