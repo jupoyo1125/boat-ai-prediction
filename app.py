@@ -139,6 +139,7 @@ def fetch_active_stadiums(date):
         raise ValueError('公式の開催情報ページを確認できませんでした。')
 
     active_jcd = set()
+    meeting_days = {}
 
     # 公式ページ内の競走場別リンクを確認
     for link in soup.find_all('a', href=True):
@@ -151,6 +152,15 @@ def fetch_active_stadiums(date):
         if (parsed.path.startswith('/owpc/pc/race/') and jcd in STADIUMS
                 and query.get('hd') == [date]):
             active_jcd.add(jcd)
+            row = link.find_parent('tr')
+            if row is not None and jcd not in meeting_days:
+                for cell in row.find_all('td', recursive=False):
+                    text = unicodedata.normalize('NFKC', cell.get_text('', strip=True))
+                    match = re.fullmatch(r'(?:\d{1,2}/\d{1,2}-\d{1,2}/\d{1,2})?(初日|\d{1,2}日目|最終日|優勝戦)', text)
+                    if match:
+                        label = match.group(1)
+                        meeting_days[jcd] = '優勝戦' if label == '最終日' else label
+                        break
 
     active = []
 
@@ -159,13 +169,74 @@ def fetch_active_stadiums(date):
         if jcd in active_jcd:
             active.append({
                 'stadium': jcd,
-                'venue': name
+                'venue': name,
+                **({'meeting_day_label': meeting_days[jcd]} if jcd in meeting_days else {}),
             })
 
     return active
 
 
 _venue_schedules = VenueScheduleCache(fetch_active_stadiums)
+
+
+def fetch_venue_race_status(key):
+    date, stadium = key
+    html = unicodedata.normalize('NFKC', get(f'{BASE}resultlist?hd={date}&jcd={stadium}', timeout=15))
+    soup = BeautifulSoup(html, 'html.parser')
+    if not soup.title or '結果一覧' not in soup.title.get_text():
+        raise ValueError('公式の結果一覧を確認できませんでした。')
+    # 別日・別場へのリダイレクトやエラーページを未確定として扱わない。
+    matches_scope = False
+    for link in soup.find_all('a', href=True):
+        parsed = urlsplit(unquote(link['href']))
+        query = parse_qs(parsed.query)
+        if (parsed.path == '/owpc/pc/race/raceindex'
+                and query.get('hd') == [date] and query.get('jcd') == [stadium]):
+            matches_scope = True
+            break
+    if not matches_scope:
+        raise ValueError('公式結果の開催日・開催場を確認できませんでした。')
+    settled = {row['race'] for row in parse_resultlist(html)
+               if 1 <= row['race'] <= 12 and (row.get('payout') or 0) > 0}
+    cancelled = set()
+    for row in soup.find_all('tr'):
+        cells = row.find_all(['td', 'th'], recursive=False)
+        if not cells:
+            continue
+        race = re.fullmatch(r'(\d{1,2})R', cells[0].get_text(strip=True))
+        if race and 1 <= int(race.group(1)) <= 12 and re.search(r'中止|不成立', row.get_text()):
+            cancelled.add(int(race.group(1)))
+    return {'settled_races': sorted(settled), 'cancelled_races': sorted(cancelled - settled)}
+
+
+_venue_race_status = VenueScheduleCache(fetch_venue_race_status, ttl=60, stale_ttl=300,
+                                      maxsize=64, payload_field='results')
+
+
+@app.get('/api/race_status')
+def api_race_status():
+    date = str(request.args.get('date', '')).replace('/', '').replace('-', '')
+    stadium = str(request.args.get('stadium', '')).zfill(2)
+    try:
+        if not re.fullmatch(r'\d{8}', date) or stadium not in STADIUMS:
+            raise ValueError
+        datetime.strptime(date, '%Y%m%d')
+    except ValueError:
+        return jsonify({'ok': False, 'error': '日付・開催場を確認してください。'}), 400
+    try:
+        snapshot = _venue_race_status.get((date, stadium))
+        results = snapshot.pop('results')
+        response = jsonify({'ok': True, 'date': date, 'stadium': stadium, **snapshot, **results})
+    except requests.Timeout:
+        response = jsonify({'ok': False, 'date': date, 'stadium': stadium,
+                            'error': '結果の取得が混み合っています。次回再確認します。'})
+        response.status_code = 503
+    except Exception:
+        response = jsonify({'ok': False, 'date': date, 'stadium': stadium,
+                            'error': '公式の結果一覧を取得できませんでした。次回再確認します。'})
+        response.status_code = 502
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def get_active_stadiums(date):

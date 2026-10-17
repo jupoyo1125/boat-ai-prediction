@@ -9,13 +9,14 @@ import requests
 
 class VenueScheduleCache:
     def __init__(self, loader, ttl=900, stale_ttl=3600, maxsize=8, wait_timeout=15,
-                 clock=time.monotonic):
+                 clock=time.monotonic, payload_field='venues'):
         self.loader = loader
         self.ttl = ttl
         self.stale_ttl = stale_ttl
         self.maxsize = maxsize
         self.wait_timeout = wait_timeout
         self.clock = clock
+        self.payload_field = payload_field
         self._condition = threading.Condition()
         self._cache = OrderedDict()
         self._pending = set()
@@ -24,7 +25,7 @@ class VenueScheduleCache:
         saved_at, venues = self._cache[date]
         age = max(0, self.clock() - saved_at)
         self._cache.move_to_end(date)
-        return {'venues': copy.deepcopy(venues), 'cached': cached,
+        return {self.payload_field: copy.deepcopy(venues), 'cached': cached,
                 'stale': age >= self.ttl, 'age_seconds': int(age)}
 
     def get(self, date):
