@@ -12,7 +12,7 @@ from threads_publisher import ThreadsError, WrongAccount, USERNAME
 API = 'https://api.buffer.com'
 POST_FIELDS = '''id status text sentAt externalLink schedulingType
     channel { id name service }
-    assets { id }
+    assets { id type mimeType source }
     metadata { ... on ThreadsPostMetadata { threadCount } }'''
 
 
@@ -53,7 +53,7 @@ class BufferClient:
                for k in ('isDisconnected', 'isLocked', 'isQueuePaused')):
             raise ThreadsError('Buffer channel unavailable')
 
-    def post_result(self, value, text=None):
+    def post_result(self, value, text=None, image_url=None, asset_ids=None):
         if not isinstance(value, dict):
             raise ThreadsError('Buffer post missing')
         self.check_channel(value.get('channel'))
@@ -63,12 +63,22 @@ class BufferClient:
                                               'error', 'needs_approval')
                 or value.get('schedulingType') != 'automatic'
                 or (text is not None and value.get('text') != text)
-                or value.get('assets') != []
                 or (value.get('metadata') or {}).get('threadCount', 0) != 0):
             raise ThreadsError('Buffer post does not match the saved forecast')
+        assets = value.get('assets')
+        if image_url:
+            if (not isinstance(assets, list) or len(assets)!=1
+                    or not isinstance(assets[0], dict) or not isinstance(assets[0].get('id'), str)
+                    or not assets[0]['id'] or assets[0].get('type')!='image'
+                    or assets[0].get('mimeType') not in ('image/png', 'image/jpeg')
+                    or urlsplit(assets[0].get('source', '')).scheme!='https'
+                    or (asset_ids is not None and [a['id'] for a in assets]!=asset_ids)):
+                raise ThreadsError('Buffer ticket image does not match the draft')
+        elif assets != []:
+            raise ThreadsError('Unexpected Buffer attachment')
         return value
 
-    def action(self, operation, input_type, values, text=None):
+    def action(self, operation, input_type, values, text=None, **image_options):
         data = self.request(
             f'''mutation ForecastAction($input: {input_type}!) {{
                 {operation}(input: $input) {{
@@ -76,48 +86,55 @@ class BufferClient:
                     ... on MutationError {{ __typename }}
                 }}
             }}''', {'input': values})
-        return self.post_result((data.get(operation) or {}).get('post'), text)
+        return self.post_result((data.get(operation) or {}).get('post'), text, **image_options)
 
-    def create(self, text):
+    def create(self, text, image_url=None):
+        assets = [{'image': {'url': image_url}}] if image_url else []
         post = self.action('createPost', 'CreatePostInput', {
-            'channelId': self.channel_id, 'text': text, 'assets': [],
+            'channelId': self.channel_id, 'text': text, 'assets': assets,
             'needsApproval': False, 'saveToDraft': True,
             'schedulingType': 'automatic', 'mode': 'addToQueue',
             'metadata': {'threads': {'type': 'post', 'thread': []}},
-        }, text)
+        }, text, image_url=image_url)
         if post['status'] != 'draft':
             raise WrongAccount('Buffer did not return a private draft')
-        return post['id']
+        return ({'id': post['id'], 'asset_ids': [a['id'] for a in post['assets']]}
+                if image_url else post['id'])
 
-    def publication(self, post_id, text=None):
+    def publication(self, post_id, text=None, **image_options):
         data = self.request(f'''query ForecastPost($id: PostId!) {{
             post(input: {{id: $id}}) {{ {POST_FIELDS} }}
         }}''', {'id': post_id})
-        post = self.post_result(data.get('post'), text)
+        post = self.post_result(data.get('post'), text, **image_options)
         if post['id'] != post_id:
             raise ThreadsError('Buffer post id mismatch')
         return post
 
-    def validate_draft(self, post_id, text):
-        if self.publication(post_id, text)['status'] != 'draft':
+    def validate_draft(self, post_id, text, **image_options):
+        if self.publication(post_id, text, **image_options)['status'] != 'draft':
             # A draft changed outside this worker must never be published again.
             raise WrongAccount('Bufferの下書きが投稿準備時の状態と一致しません。')
 
-    def publish(self, post_id, text):
-        post = self.action('editPost', 'EditPostInput', {
-            'id': post_id, 'text': text, 'assets': [], 'saveToDraft': False,
+    def publish(self, post_id, text, **image_options):
+        values = {
+            'id': post_id, 'text': text, 'saveToDraft': False,
             'schedulingType': 'automatic', 'mode': 'shareNow',
             'metadata': {'threads': {'type': 'post', 'thread': []}},
-        }, text)
+        }
+        # Omit assets for image drafts: preserve the verified asset ID rather
+        # than uploading/removing the picture when making the draft visible.
+        if not image_options:
+            values['assets'] = []
+        post = self.action('editPost', 'EditPostInput', values, text, **image_options)
         if post['status'] not in ('scheduled', 'sending', 'sent'):
             raise ThreadsError('Buffer publication not accepted')
         return post['id']
 
-    def withdraw(self, post_id):
+    def withdraw(self, post_id, **image_options):
         # This preserves the Buffer post as a draft; it never deletes a native post.
         post = self.action('editPost', 'EditPostInput', {
             'id': post_id, 'saveToDraft': True,
-        })
+        }, **image_options)
         if post['status'] != 'draft':
             raise ThreadsError('Buffer withdrawal not confirmed')
 
