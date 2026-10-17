@@ -16,11 +16,15 @@ function stat(roi, wins=1, settled=2, pending=3) {
     settled, wins, pending, investment, payout, profit:payout-investment};
 }
 function payload(date, stadium='') {
+  const hit=(race,payout,actual_combo='1-2-3')=>({date,stadium:stadium||'04',
+    venue:stadium==='06'?'浜名湖':stadium==='24'?'大村':'平和島',race,actual_combo,payout});
   return {ok:true, legacy_records:0,
     category_stats:{gachi:stat(110,4,10), roman:stat(120), oni:stat(90)},
     automatic_category_stats:{gachi:stat(80,3,10), roman:stat(120), oni:stat(90)},
     daily:{date, stadium, category_stats:{gachi:stat(250), roman:stat(50), oni:stat(300)},
-      automatic_category_stats:{gachi:stat(150), roman:stat(0,0), oni:stat(200)}},
+      automatic_category_stats:{gachi:stat(150), roman:stat(0,0), oni:stat(200)},
+      category_hits:{gachi:[hit(1,500)],roman:[hit(2,100,'4-5-6')],oni:[hit(3,600)]},
+      automatic_category_hits:{gachi:[hit(1,300)],roman:[],oni:[hit(3,400)]}},
     historical:{ok:true, exists:true, phase:'running', enabled:true, total_days:365,
       category_stats:{gachi:stat(999), roman:stat(888), oni:stat(777)}},
   };
@@ -31,7 +35,9 @@ function context(handler, instant='2026-10-14T15:30:00Z') {
     static now(){return new Date(instant).getTime();}
   }
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],
-    {textContent:'-',innerHTML:'',value:'',disabled:false,style:{},listeners:{},
+    {textContent:'-',innerHTML:'',value:'',disabled:false,style:{},listeners:{},open:false,
+      showModal(){this.open=true;},
+      close(){this.open=false;this.listeners.close?.();},
       addEventListener(name,callback){this.listeners[name]=callback;}}]));
   elements.get('perfScope').value='automatic';
   elements.get('date').value='20261007';
@@ -213,5 +219,96 @@ async function run(){
   }
   assert.match(emptyVenue.elements.get('perfDailyNote').textContent,/大村/);
   console.log('PASS: A venue with no stored forecasts shows no-record status without inventing losses.');
+
+  const hits=context();await hits.run('loadPerformanceStatus()');
+  const dialog=hits.elements.get('perfHitsDialog');
+  const callsBeforeClick=hits.calls.length;
+  assert.equal(hits.elements.get('perfDailyGachiHitRate').disabled,false);
+  hits.elements.get('perfDailyGachiHitRate').listeners.click();
+  assert.equal(dialog.open,true);
+  assert.match(hits.elements.get('perfHitsTitle').textContent,/ガチガチ/);
+  assert.match(hits.elements.get('perfHitsContext').textContent,/2026\/10\/15｜全場｜自動予想/);
+  assert.match(hits.elements.get('perfHitsRows').innerHTML,/<td>平和島<\/td><td>1R<\/td><td>1-2-3<\/td><td>300円<\/td>/);
+  assert.equal(hits.elements.get('perfHitsTotal').textContent,'的中1R｜払戻合計 300円');
+  assert.equal(hits.calls.length,callsBeforeClick);
+  for(const id of ['Gachi','Roman','Oni']){
+    assert.match(html,new RegExp('<button[^>]*id="perfDaily'+id+'HitRate"[^>]*aria-haspopup="dialog"'));
+    assert.match(html,new RegExp('<b id="perf'+id+'HitRate">'));
+    assert.equal(hits.elements.get('perf'+id+'HitRate').listeners.click,undefined);
+  }
+  hits.elements.get('perfHitsClose').listeners.click();
+  assert.equal(dialog.open,false);
+  assert.equal(hits.run('performanceHitsCategory'),'');
+  console.log('PASS: Only daily hit rates open a read-only venue/race/result/100-yen payout list; cumulative totals stay plain text.');
+
+  hits.elements.get('perfDailyRomanHitRate').listeners.click();
+  assert.equal(dialog.open,true);
+  assert.equal(hits.elements.get('perfHitsRows').innerHTML,'');
+  assert.equal(hits.elements.get('perfHitsEmpty').hidden,false);
+  assert.equal(hits.elements.get('perfHitsTotal').textContent,'的中0R｜払戻合計 0円');
+  dialog.close();
+  hits.elements.get('perfDailyOniHitRate').listeners.click();
+  assert.match(hits.elements.get('perfHitsTitle').textContent,/鬼しぼり/);
+  assert.match(hits.elements.get('perfHitsRows').innerHTML,/<td>3R<\/td><td>1-2-3<\/td><td>400円/);
+  assert.equal(pending.elements.get('perfDailyGachiHitRate').disabled,true);
+  pending.run("openDailyHits('gachi')");
+  assert.equal(pending.elements.get('perfHitsDialog').open,false);
+  console.log('PASS: Each category uses its own winners and payout, zero hits show an empty list, and unconfirmed results cannot open invented details.');
+
+  hits.elements.get('perfScope').value='all';
+  const changingScope=hits.run('loadPerformanceStatus()');
+  assert.equal(dialog.open,false);
+  assert.equal(hits.elements.get('perfDailyOniHitRate').disabled,true);
+  await changingScope;
+  hits.elements.get('perfDailyRomanHitRate').listeners.click();
+  assert.match(hits.elements.get('perfHitsContext').textContent,/手動予想を含む/);
+  assert.match(hits.elements.get('perfHitsRows').innerHTML,/<td>2R<\/td><td>4-5-6<\/td><td>100円/);
+  hits.elements.get('perfStadium').value='06';await hits.run('loadPerformanceStatus()');
+  assert.equal(dialog.open,false);
+  hits.elements.get('perfDailyGachiHitRate').listeners.click();
+  assert.match(hits.elements.get('perfHitsContext').textContent,/浜名湖/);
+  assert.match(hits.elements.get('perfHitsRows').innerHTML,/<td>浜名湖<\/td>/);
+  assert.doesNotMatch(hits.elements.get('perfHitsRows').innerHTML,/平和島/);
+  hits.elements.get('perfDate').value='2026-10-10';hits.run('performanceFollowingToday=false');
+  await hits.run('loadPerformanceStatus()');
+  assert.equal(dialog.open,false);
+  hits.elements.get('perfDailyGachiHitRate').listeners.click();
+  assert.match(hits.elements.get('perfHitsContext').textContent,/2026\/10\/10｜浜名湖/);
+  console.log('PASS: Changing date, venue, or forecast scope closes old details and opens only the new filter results.');
+
+  let refreshed=false;
+  const refreshing=context(()=>{
+    const data=payload('20261015');
+    if(refreshed){
+      data.daily.automatic_category_stats.gachi=stat(450);
+      data.daily.automatic_category_hits.gachi[0].payout=900;
+    }
+    return response(data);
+  });
+  await refreshing.run('loadPerformanceStatus()');
+  refreshing.elements.get('perfDailyGachiHitRate').listeners.click();
+  refreshed=true;await refreshing.run('loadPerformanceStatus()');
+  assert.equal(refreshing.elements.get('perfHitsDialog').open,true);
+  assert.equal(refreshing.elements.get('perfDailyGachiHitRate').textContent,'50.0%');
+  assert.match(refreshing.elements.get('perfHitsRows').innerHTML,/900円/);
+  assert.equal(refreshing.elements.get('perfHitsTotal').textContent,'的中1R｜払戻合計 900円');
+  console.log('PASS: Automatic refresh updates an open list without closing it or leaving stale payouts behind.');
+
+  const missingDetails=context(()=>{
+    const data=payload('20261015');delete data.daily.automatic_category_hits;
+    return response(data);
+  });await missingDetails.run('loadPerformanceStatus()');
+  assert.equal(missingDetails.elements.get('perfDailyGachiHitRate').textContent,'50.0%');
+  assert.equal(missingDetails.elements.get('perfDailyGachiHitRate').disabled,true);
+  missingDetails.run("openDailyHits('gachi')");
+  assert.equal(missingDetails.elements.get('perfHitsDialog').open,false);
+  const escaped=context(()=>{
+    const data=payload('20261015');data.daily.automatic_category_hits.gachi[0].venue='<img src=x onerror=alert(1)>';
+    return response(data);
+  });await escaped.run('loadPerformanceStatus()');
+  escaped.elements.get('perfDailyGachiHitRate').listeners.click();
+  assert.match(escaped.elements.get('perfHitsRows').innerHTML,/&lt;img/);
+  assert.doesNotMatch(escaped.elements.get('perfHitsRows').innerHTML,/<img/);
+  console.log('PASS: Missing details disable drilldown without inventing rows, and saved text is escaped before display.');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});

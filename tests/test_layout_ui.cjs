@@ -70,7 +70,13 @@ async function main(){
  run('shiftRaceDate(1)');await new Promise(resolve=>setImmediate(resolve));assert.equal(nodes.get('date').value,'20261017');assert.equal(nodes.get('nextRaceDay').disabled,true);
  console.log('PASS: Previous and next date controls stay within available dates and refresh the selected day.');
  assert.equal(new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1])).size,[...html.matchAll(/\bid="([^"]+)"/g)].length);
- assert.match(html,/grid-template-columns:26px repeat\(3,minmax\(0,1fr\)\)/);
- console.log('PASS: Every data binding has a unique ID and mobile bet rows use a card layout.');
+ const betTables=[...html.matchAll(/<table class="bet-table">([\s\S]*?)<\/table>/g)];
+ assert.equal(betTables.length,3);
+ for(const table of betTables){
+  assert.deepEqual([...table[1].matchAll(/<th scope="col">([^<]+)<\/th>/g)].map(match=>match[1]),['買い目','オッズ']);
+  assert.doesNotMatch(table[1],/順位|推定確率|期待倍率|推奨理由/);
+ }
+ assert.doesNotMatch(html,/grid-template-columns:26px repeat\(3,minmax\(0,1fr\)\)/);
+ console.log('PASS: Every data binding has a unique ID and all three compact bet tables expose only combinations and odds.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

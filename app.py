@@ -427,7 +427,7 @@ def apply_category_accounting(row):
     row['hit'] = any(result['hit'] for result in results.values())
 
 
-def category_ledger_stats(rows):
+def latest_category_rows(rows):
     # 再分析した同じレースを重複して集計しない。
     latest = {}
     for row in rows:
@@ -442,8 +442,12 @@ def category_ledger_stats(rows):
             del latest[key]
         latest[key] = row
 
+    return list(latest.values())
+
+
+def category_ledger_stats(rows):
     grouped = {category: [] for category in BET_CATEGORIES}
-    for row in latest.values():
+    for row in latest_category_rows(rows):
         for category, result in category_race_results(row).items():
             if result['bet_count']:
                 grouped[category].append(dict(result, date=row.get('date', '')))
@@ -455,6 +459,25 @@ def category_ledger_stats(rows):
         stats[category]['pending'] = len(records) - len(settled)
         stats[category]['bet_count'] = sum(record['bet_count'] for record in settled)
     return stats
+
+
+def category_ledger_hits(rows):
+    hits = {category: [] for category in BET_CATEGORIES}
+    for row in sorted(latest_category_rows(rows), key=lambda row: (
+        str(row.get('stadium', '')).zfill(2), int(row.get('race', 0)),
+    )):
+        stadium = str(row.get('stadium', '')).zfill(2)
+        for category, result in category_race_results(row).items():
+            if result['settled'] and result['hit']:
+                hits[category].append({
+                    'date': str(row.get('date', '')).replace('/', '').replace('-', ''),
+                    'stadium': stadium,
+                    'venue': STADIUMS.get(stadium, stadium),
+                    'race': int(row.get('race', 0)),
+                    'actual_combo': '-'.join(str(row.get('actual_combo', '')).replace('-', '')),
+                    'payout': result['payout'],
+                })
+    return hits
 
 
 def get(url, timeout=5, priority=0):
@@ -1164,6 +1187,8 @@ def api_performance():
     daily_rows = [row for row in rows
                   if str(row.get('date', '')).replace('/', '').replace('-', '') == date
                   and (not stadium or str(row.get('stadium', '')).zfill(2) == stadium)]
+    daily_automatic_rows = [row for row in daily_rows
+                            if row.get('prediction_origin') == 'automatic']
     response = jsonify({
         'ok': True,
         'stats': ledger_stats(rows),
@@ -1174,9 +1199,9 @@ def api_performance():
             'stadium': stadium,
             'venue': STADIUMS.get(stadium, '全場'),
             'category_stats': category_ledger_stats(daily_rows),
-            'automatic_category_stats': category_ledger_stats([
-                row for row in daily_rows if row.get('prediction_origin') == 'automatic'
-            ]),
+            'automatic_category_stats': category_ledger_stats(daily_automatic_rows),
+            'category_hits': category_ledger_hits(daily_rows),
+            'automatic_category_hits': category_ledger_hits(daily_automatic_rows),
             'legacy_records': sum(1 for row in daily_rows if row.get('performance_version') != 2),
         },
         'historical': historical_status(),

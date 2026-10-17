@@ -70,6 +70,60 @@ class DailyPerformanceChecks(unittest.TestCase):
         data = self.client.get('/api/performance?date=20261010&stadium=07').json
         self.assertEqual(len(data['records']), 100)
         self.assertEqual(data['daily']['category_stats']['gachi']['settled'], 1)
+        self.assertEqual(len(data['daily']['category_hits']['gachi']), 1)
+
+    def test_hit_lists_match_each_category_and_scope_without_combining_payouts(self):
+        self.rows = [
+            dict(record('20261014', 1, stadium='04', payout=900), payout=1800),
+            record('2026/10/14', 2, stadium='04', automatic=False, payout=500,
+                   bets=[{'category': 'roman', 'bet': '1-2-3'}]),
+            record('20261014', 3, stadium='04', settled=False),
+            record('20261014', 1, stadium='06', payout=200),
+            record('20261013', 1, stadium='04', payout=100),
+            {'date': '20261014', 'stadium': '04', 'settled': True, 'hit': True, 'payout': 99999},
+        ]
+        original = copy.deepcopy(self.rows)
+        with mock.patch.object(core, 'save_ledger') as save:
+            daily = self.client.get('/api/performance?date=20261014&stadium=04').json['daily']
+            save.assert_not_called()
+        expected = {'date': '20261014', 'stadium': '04', 'venue': '平和島',
+                    'race': 1, 'actual_combo': '1-2-3', 'payout': 900}
+        self.assertEqual(daily['category_hits']['gachi'], [expected])
+        self.assertEqual(daily['automatic_category_hits']['oni'], [expected])
+        self.assertEqual(daily['automatic_category_hits']['roman'], [])
+        self.assertEqual(daily['category_hits']['roman'][0]['race'], 2)
+        for stats_key, hits_key in [('category_stats', 'category_hits'),
+                                    ('automatic_category_stats', 'automatic_category_hits')]:
+            for category, hits in daily[hits_key].items():
+                self.assertEqual(len(hits), daily[stats_key][category]['wins'])
+                self.assertEqual(sum(hit['payout'] for hit in hits), daily[stats_key][category]['payout'])
+        self.assertEqual(self.rows, original)
+
+    def test_hit_lists_use_latest_forecast_and_sort_by_venue_then_numeric_race(self):
+        self.rows = [
+            record('20261014', 10, stadium='06'),
+            record('20261014', 1, stadium='04'),
+            record('2026-10-14', 1, stadium='04', payout=700),
+            record('20261014', 2, stadium='06'),
+            record('20261014', 3, stadium='04'),
+            record('2026/10/14', 3, stadium=4, settled=False),
+            record('20261014', 4, stadium='04', bets=[]),
+        ]
+        daily = self.client.get('/api/performance?date=20261014').json['daily']
+        hits = daily['category_hits']['gachi']
+        self.assertEqual([(hit['stadium'], hit['race']) for hit in hits],
+                         [('04', 1), ('06', 2), ('06', 10)])
+        self.assertEqual(hits[0]['payout'], 700)
+        for category in core.BET_CATEGORIES:
+            self.assertEqual(len(daily['category_hits'][category]), daily['category_stats'][category]['wins'])
+
+    def test_hit_lists_include_more_than_a_hundred_daily_winners(self):
+        self.rows = [record('20261014', race, stadium=str(stadium).zfill(2))
+                     for stadium in range(1, 11) for race in range(1, 13)]
+        data = self.client.get('/api/performance?date=20261014').json
+        self.assertEqual(len(data['records']), 100)
+        self.assertEqual(len(data['daily']['automatic_category_hits']['gachi']), 120)
+        self.assertEqual(len(data['daily']['category_hits']['oni']), 120)
 
     def test_same_race_is_counted_once_and_no_buy_categories_are_excluded(self):
         original = record('20261014', 1, payout=500)
@@ -90,6 +144,8 @@ class DailyPerformanceChecks(unittest.TestCase):
                 self.assertIsNone(category['hit_rate'])
                 self.assertEqual(category['investment'], 0)
                 self.assertEqual(category['pending'], pending)
+            daily = self.client.get('/api/performance?date=' + date).json['daily']
+            self.assertEqual(daily['category_hits'], {category: [] for category in core.BET_CATEGORIES})
 
     def test_default_date_is_today_in_japan_across_utc_midnight_boundary(self):
         class Clock(datetime):
