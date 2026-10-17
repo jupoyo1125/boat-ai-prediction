@@ -121,6 +121,31 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
         get.assert_called_once()
 
+    def test_official_meeting_days_are_displayed_below_the_matching_venues(self):
+        html = '''<title>本日のレース｜BOAT RACE オフィシャルウェブサイト</title><table>
+        <tr><td><a href="/owpc/pc/race/raceindex?jcd=04&amp;hd=20261009">大会名に初日</a></td>
+        <td>10/05-10/10<br>５日目</td></tr>
+        <tr><td><a href="/owpc/pc/race/raceindex?jcd=16&amp;hd=20261009">開催タイトル</a></td>
+        <td>10/09-10/14<br>初日</td></tr>
+        <tr><td><a href="/owpc/pc/race/raceindex?jcd=24&amp;hd=20261009">開催タイトル</a></td>
+        <td>10/06-10/09<br>最終日</td></tr>
+        <tr><td><a href="/owpc/pc/race/raceindex?jcd=01&amp;hd=20261008">別の日</a></td>
+        <td>10/08-10/13<br>２日目</td></tr></table>'''
+        with mock.patch.object(core, 'get', return_value=html):
+            response = self.client.get('/api/schedule?date=20261009')
+        self.assertEqual(response.json['venues'], [
+            {'stadium': '04', 'venue': '平和島', 'meeting_day_label': '5日目'},
+            {'stadium': '16', 'venue': '児島', 'meeting_day_label': '初日'},
+            {'stadium': '24', 'venue': '大村', 'meeting_day_label': '優勝戦'},
+        ])
+
+    def test_meeting_day_is_not_guessed_from_event_titles_or_calendar_dates(self):
+        html = '''<title>本日のレース</title><table><tr>
+        <td><a href="/owpc/pc/race/raceindex?jcd=04&amp;hd=20261009">優勝戦５日目記念</a></td>
+        <td>10/05-10/10</td></tr></table>'''
+        with mock.patch.object(core, 'get', return_value=html):
+            self.assertEqual(core.fetch_active_stadiums('20261009'), [{'stadium': '04', 'venue': '平和島'}])
+
     def test_failed_refresh_uses_only_a_recent_schedule_for_the_same_date(self):
         with mock.patch.object(core, 'get', return_value=HTML):
             core.get_active_stadiums('20261009')

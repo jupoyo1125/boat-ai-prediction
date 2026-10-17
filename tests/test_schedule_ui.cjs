@@ -46,6 +46,7 @@ function context(handler){
       calls.push({url,options});
       const custom=await handler(url,options);
       if(custom) return custom;
+      if(url.startsWith('/api/race_status?')){const params=new URLSearchParams(url.split('?')[1]);return response({ok:true,date:params.get('date'),stadium:params.get('stadium'),settled_races:[],cancelled_races:[]});}
       if(url.startsWith('/api/saved_prediction?')) return response({ok:false},404);
       throw new Error('Unexpected request '+url);
     }});

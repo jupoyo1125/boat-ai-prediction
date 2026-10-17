@@ -40,6 +40,7 @@ const ctx=vm.createContext({Date,URLSearchParams,AbortController,console,
  }},
  async fetch(url,options){calls.push({url,options});
   if(url.startsWith('/api/schedule?'))return {ok:true,json:async()=>({ok:true,date:new URLSearchParams(url.split('?')[1]).get('date'),venues:[{stadium:'04',venue:'平和島'},{stadium:'01',venue:'桐生'}]})};
+  if(url.startsWith('/api/race_status?')){const params=new URLSearchParams(url.split('?')[1]);return {ok:true,json:async()=>({ok:true,date:params.get('date'),stadium:params.get('stadium'),settled_races:[],cancelled_races:[]})};}
   if(url.startsWith('/api/saved_prediction?'))return {ok:false,json:async()=>({ok:false})};
   throw Error('Unexpected request '+url);
  }});
