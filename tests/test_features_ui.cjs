@@ -8,10 +8,11 @@ new vm.Script(script);
 const definitions = script.slice(0, script.lastIndexOf("document.getElementById('date').addEventListener"));
 const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m => [m[1],
   {textContent:'', innerHTML:'', disabled:false, style:{}}]));
+let weights = {motor:.15,exhibition:.30,meeting:.05,course:.50};
 const ctx = vm.createContext({console, Date, URLSearchParams, AbortController, setTimeout, clearTimeout,
   document:{getElementById:id=>elements.get(id)},
   fetch:async()=>({ok:true,json:async()=>({ok:true,model:{feature_schema:'racer-course-year-v2',
-    weights:{motor:.25,exhibition:.25,meeting:.25,course:.25}, feature_samples:0,feature_hits:0,
+    weights, feature_samples:0,feature_hits:0,
     samples:1730,hits:707,temperature:12}})})});
 vm.runInContext(definitions, ctx);
 async function run(){
@@ -23,7 +24,17 @@ async function run(){
   assert.match(elements.get('learnWeights').innerHTML,/1・2・3着率/);
   assert.doesNotMatch(elements.get('learnWeights').innerHTML,/全国勝率|当地勝率|過去実績/);
   assert.match(elements.get('learnBasis').textContent,/1,730R/);
+  for (const percent of ['15.0%', '30.0%', '5.0%', '50.0%']) {
+    assert.ok(elements.get('learnWeights').innerHTML.includes('>'+percent+'<'));
+  }
+  assert.match(elements.get('learnBasis').textContent,/モーター15%・展示タイム30%・節間成績5%・選手別コース成績50%/);
+  assert.doesNotMatch(elements.get('learnBasis').textContent,/各25%/);
   console.log('PASS: Four-feature weights and new learning counts stay separate from legacy lifetime counts.');
+  weights = {motor:.16,exhibition:.29,meeting:.05,course:.50};
+  await vm.runInContext('loadLearningStatus()',ctx);
+  assert.match(elements.get('learnWeights').innerHTML,/>16.0%</);
+  assert.match(elements.get('learnWeights').innerHTML,/>29.0%</);
+  console.log('PASS: Requested baseline is explained while the percentages display the actual learned model weights.');
   const detail = vm.runInContext(`featureDetails({feature_schema:'racer-course-year-v2',motor:40.5,exhibition:6.7,
     meeting_count:2,meeting_finishes:[{place:1},{place:3}],entry_course:4,
     course_rates:{starts:20,first:0,second:25,third:15},course_start_date:'20251017',course_end_date:'20261016'})`,ctx);

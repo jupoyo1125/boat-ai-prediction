@@ -28,9 +28,12 @@ LEGACY_DEFAULT = {
 }
 
 
+WEIGHT_BASELINE_VERSION = '20261017-15-30-5-50'
+
 DEFAULT = {
     'feature_schema': FEATURE_SCHEMA,
-    'weights': {key: 0.25 for key in FEATURE_KEYS},
+    'weight_baseline_version': WEIGHT_BASELINE_VERSION,
+    'weights': {'motor': 0.15, 'exhibition': 0.30, 'meeting': 0.05, 'course': 0.50},
     'temperature': 12.0, 'samples': 0, 'hits': 0,
     'feature_samples': 0, 'feature_hits': 0, 'updated_at': None,
 }
@@ -43,7 +46,17 @@ def feature_schema(state):
 
 def upgrade_state(state):
     if feature_schema(state) == FEATURE_SCHEMA:
-        return state
+        if state.get('weight_baseline_version') == WEIGHT_BASELINE_VERSION:
+            return state
+        updated = copy.deepcopy(state)
+        updated.setdefault('weight_baseline_history', []).append({
+            'version': state.get('weight_baseline_version'),
+            'weights': copy.deepcopy(state.get('weights', {})),
+            'updated_at': state.get('updated_at'),
+        })
+        updated['weights'] = DEFAULT['weights'].copy()
+        updated['weight_baseline_version'] = WEIGHT_BASELINE_VERSION
+        return updated
     updated = copy.deepcopy(DEFAULT)
     # The old evidence belongs to a different feature definition. Keep it for
     # audit and keep lifetime counters, but start four-feature learning afresh.

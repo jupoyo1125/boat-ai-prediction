@@ -779,7 +779,7 @@ async function loadSchedule(){
   } : {nation:'全国勝率（旧）',local:'当地勝率（旧）',motor:'モーター（旧）',
        st:'ST（旧）',exhibition:'展示タイム（旧）',exhibition_st:'展示ST（旧）',history:'過去実績（旧）'};
   document.getElementById('learnBasis').textContent=current ?
-   'コース成績は展示の進入順で参照し、1・2・3着率を各着順の評価に使用。対象日前日までの暦1年を集計します。節間成績は対象レース前の確定着順です。データなし・進入未確定は中立評価。初期の重みは各25%、結果から更新します。旧方式を含む通算の照合は '+Number(m.samples||0).toLocaleString('ja-JP')+'Rです。' :
+   'コース成績は展示の進入順で参照し、1・2・3着率を各着順の評価に使用。対象日前日までの暦1年を集計します。節間成績は対象レース前の確定着順です。データなし・進入未確定は中立評価。重みの基準はモーター15%・展示タイム30%・節間成績5%・選手別コース成績50%。この割合から結果に応じて自動学習し、現在の割合を上に表示します。旧方式を含む通算の照合は '+Number(m.samples||0).toLocaleString('ja-JP')+'Rです。' :
    '旧方式で保存されたモデルの学習状況です。';
 
   const weights=m.weights||{};

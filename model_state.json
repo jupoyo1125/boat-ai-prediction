@@ -1,1 +1,1 @@
-{"feature_schema":"racer-course-year-v2","weights":{"motor":0.25,"exhibition":0.25,"meeting":0.25,"course":0.25},"temperature":12.0,"samples":0,"hits":0,"feature_samples":0,"feature_hits":0,"updated_at":null}
+{"feature_schema":"racer-course-year-v2","weight_baseline_version":"20261017-15-30-5-50","weights":{"motor":0.15,"exhibition":0.30,"meeting":0.05,"course":0.50},"temperature":12.0,"samples":0,"hits":0,"feature_samples":0,"feature_hits":0,"updated_at":null}
