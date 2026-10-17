@@ -561,11 +561,15 @@ class ClientTests(unittest.TestCase):
             client.verify_account()
 
 
-def buffer_post(status='draft'):
-    return {'id': 'buffer-post-1', 'status': status, 'text': tp.caption(forecast()),
+def buffer_post(status='draft', ticket=False):
+    return {'id': 'buffer-post-1', 'status': status,
+            'text': tp.ticket_caption(forecast()) if ticket else tp.caption(forecast()),
             'sentAt': '2026-10-15T10:21:00+09:00' if status == 'sent' else None,
             'externalLink': 'https://www.threads.com/@ton123kyotei456/post/example',
-            'schedulingType': 'automatic', 'assets': [], 'metadata': {'threadCount': 0},
+            'schedulingType': 'automatic',
+            'assets': ([{'id': 'ticket-asset-1', 'type': 'image', 'mimeType': 'image/png',
+                         'source': 'https://media.buffer.com/example.png'}] if ticket else []),
+            'metadata': {'threadCount': 0},
             'channel': {'id': 'channel-1', 'service': 'threads', 'name': tp.USERNAME}}
 
 
@@ -658,9 +662,9 @@ class BufferFlowTests(unittest.TestCase):
         self.row = forecast()
         self.store = MemoryStore()
         self.client = mock.Mock()
-        self.client.create.return_value = 'buffer-post-1'
+        self.client.create.return_value = {'id': 'buffer-post-1', 'asset_ids': ['ticket-asset-1']}
         self.client.publish.return_value = 'buffer-post-1'
-        self.client.publication.return_value = buffer_post('sending')
+        self.client.publication.return_value = buffer_post('sending', ticket=True)
         self.client.permalink.side_effect = BufferClient.permalink
         self.core = mock.Mock()
         self.core.load_ledger.return_value = [self.row]
@@ -675,12 +679,13 @@ class BufferFlowTests(unittest.TestCase):
     def test_acceptance_is_confirmed_before_being_reported_as_published(self):
         self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'submitted')
-        self.client.publish.assert_called_once_with('buffer-post-1', tp.caption(self.row))
+        self.client.publish.assert_called_once_with('buffer-post-1', tp.ticket_caption(self.row),
+            image_url=self.state()['image_url'], asset_ids=['ticket-asset-1'])
         self.now += timedelta(seconds=20)
         self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'submitted')
         self.now += timedelta(seconds=60)
-        self.client.publication.return_value = buffer_post('sent')
+        self.client.publication.return_value = buffer_post('sent', ticket=True)
         self.publisher.run_once(); self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'published')
         self.assertIn('/@ton123kyotei456/post/', self.state()['permalink'])
@@ -693,19 +698,53 @@ class BufferFlowTests(unittest.TestCase):
             values = list(pool.map(lambda _: self.store.claim_confirmation(self.config, self.now), range(2)))
         self.assertEqual(sum(value is not None for value in values), 1)
 
+    def test_restart_reuses_the_prepared_image_without_creating_another_draft(self):
+        self.store.enqueue([tp.candidate(self.row, self.config, self.now)])
+        entry = self.store.claim(self.config, self.now)
+        self.store.update(entry, ('creating',), state='ready',
+                          container_id='buffer-post-1', asset_ids=['ticket-asset-1'])
+        self.now += tp.LEASE + timedelta(seconds=1)
+        restarted = tp.Publisher(self.core, self.config, self.store, self.client,
+                                 clock=lambda: self.now)
+        restarted.run_once()
+        self.client.create.assert_not_called()
+        self.client.validate_draft.assert_called_once_with(
+            'buffer-post-1', tp.ticket_caption(self.row),
+            image_url=entry['image_url'], asset_ids=['ticket-asset-1'])
+        self.client.publish.assert_called_once()
+        self.assertEqual(self.state()['state'], 'submitted')
+
+    def test_missing_image_id_never_falls_back_to_a_text_post(self):
+        self.client.create.return_value = {'id': 'buffer-post-1', 'asset_ids': []}
+        self.publisher.run_once()
+        self.client.publish.assert_not_called()
+        self.assertEqual(self.state()['state'], 'error')
+
+    def test_status_exposes_the_format_without_image_bytes_or_private_asset_ids(self):
+        self.publisher.run_once()
+        with mock.patch.object(tp, 'configuration', return_value=self.config), \
+                mock.patch.object(tp, 'now_jst', return_value=self.now), \
+                mock.patch.object(tp, 'PostStore', return_value=self.store):
+            status = tp.public_status()
+        self.assertEqual(status['post_format'], 'three_lines_ticket_image')
+        self.assertEqual(status['posts'][0]['format'], 'ticket-v1')
+        for private in ('image_data', 'image_url', 'asset_ids', 'ticket-asset-1'):
+            self.assertNotIn(private, str(status))
+
     def test_pending_forecast_returns_to_draft_when_the_deadline_approaches(self):
         self.publisher.run_once()
         self.now = tp.timestamp(self.row['scheduled_deadline']) - tp.MIN_LEAD
-        self.client.publication.return_value = buffer_post('scheduled')
+        self.client.publication.return_value = buffer_post('scheduled', ticket=True)
         self.publisher.run_once()
-        self.client.withdraw.assert_called_once_with('buffer-post-1')
+        self.client.withdraw.assert_called_once_with('buffer-post-1',
+            image_url=self.state()['image_url'], asset_ids=['ticket-asset-1'])
         self.assertEqual(self.state()['state'], 'expired')
         self.client.publish.assert_called_once()
 
     def test_withdrawal_timeout_does_not_resubmit(self):
         self.publisher.run_once()
         self.now = tp.timestamp(self.row['scheduled_deadline']) - tp.MIN_LEAD
-        self.client.publication.return_value = buffer_post('scheduled')
+        self.client.publication.return_value = buffer_post('scheduled', ticket=True)
         self.client.withdraw.side_effect = TimeoutError()
         self.publisher.run_once(); self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'uncertain')
@@ -721,7 +760,7 @@ class BufferFlowTests(unittest.TestCase):
     def test_buffer_error_is_not_published_and_not_recreated(self):
         self.publisher.run_once()
         self.now += timedelta(seconds=20)
-        self.client.publication.return_value = buffer_post('error')
+        self.client.publication.return_value = buffer_post('error', ticket=True)
         self.publisher.run_once(); self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'error')
         self.client.create.assert_called_once()
@@ -730,7 +769,7 @@ class BufferFlowTests(unittest.TestCase):
     def test_sent_after_deadline_is_reported_as_late(self):
         self.publisher.run_once()
         self.now = tp.timestamp(self.row['scheduled_deadline']) + timedelta(seconds=10)
-        self.client.publication.return_value = dict(buffer_post('sent'), sentAt=self.now.isoformat())
+        self.client.publication.return_value = dict(buffer_post('sent', ticket=True), sentAt=self.now.isoformat())
         self.publisher.run_once()
         self.assertEqual(self.state()['state'], 'published_late')
 

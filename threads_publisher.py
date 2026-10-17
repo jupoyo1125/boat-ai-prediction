@@ -249,12 +249,42 @@ def candidate(row, config, now):
             return None
         if deadline.strftime('%Y%m%d') != config.date or not complete_exhibition(row['prediction']):
             return None
-        return {'key': row['id'], 'deadline': deadline.isoformat(),
+        entry = {'key': row['id'], 'deadline': deadline.isoformat(),
                 'text': caption(row, config.line_promotion),
                 'saved_at': row['prediction_saved_at'], 'state': 'queued', 'attempts': 0,
                 'provider': config.provider}
+        if (config.provider == 'buffer'
+                and not (config.line_promotion and config.line_promotion.matches(row))):
+            from ticket_image import freeze
+            entry.update(freeze(row), text=ticket_caption(row))
+        return entry
     except (KeyError, ValueError, TypeError, OverflowError):
         return None
+
+
+def ticket_caption(row):
+    """Three opening lines, with an objective exhibition observation."""
+    original = caption(row)  # Validate every saved pick/category before shortening.
+    main = next(line for line in original.splitlines() if line.startswith('本命'))
+    second = next(line for line in original.splitlines() if line.startswith('相手軸'))
+    boats = row['prediction']['boats']
+    fastest_time = min(round(b['exhibition'], 2) for b in boats)
+    fastest = [b['boat'] for b in boats if round(b['exhibition'], 2) == fastest_time]
+    marks = ' ①②③④⑤⑥'
+    note = (f'6艇の展示タイムは同じ{fastest_time:.2f}秒' if len(fastest)==6 else
+            f'展示最速は{"".join(marks[n] for n in sorted(fastest))}（{fastest_time:.2f}秒）'
+            + ('・同タイム' if len(fastest)>1 else ''))
+    date = row['date']
+    text = (f'本命：{main[2:].split("（", 1)[0]}\n'
+            f'軸：{second[3:].split("（", 1)[0]}\n今回の注目点：{note}\n\n'
+            f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後・独自サイト予想🚤】\n'
+            '3タイプの買い目は舟券風画像へ👇\n'
+            f'{timestamp(row["prediction_saved_at"]):%H:%M}保存／'
+            f'締切{timestamp(row["scheduled_deadline"]):%H:%M}\n\n'
+            'このレース、あなたの本命は何号艇？')
+    if len(text)>500 or re.search(r'https?://|www\.|onrender\.com', text, re.I):
+        raise ValueError('invalid short forecast')
+    return text
 
 
 class PostStore:
@@ -460,10 +490,22 @@ class Publisher:
         while entry := self.store.claim(self.config, self.clock()):
             try:
                 self.verify_connection()
-                container = entry.get('container_id') or self.client.create(entry['text'])
+                image_options = {'image_url': entry['image_url']} if entry.get('format')=='ticket-v1' else {}
+                prepared = entry.get('container_id') or self.client.create(entry['text'], **image_options)
+                container = prepared
+                if image_options:
+                    if isinstance(prepared, dict):
+                        container = prepared['id']
+                        entry['asset_ids'] = prepared['asset_ids']
+                    if (not isinstance(entry.get('asset_ids'), list) or len(entry['asset_ids'])!=1
+                            or not isinstance(entry['asset_ids'][0], str) or not entry['asset_ids'][0]):
+                        raise WrongAccount('舟券画像の添付を確認できません。')
+                    image_options['asset_ids'] = entry['asset_ids']
                 if self.config.provider == 'buffer':
-                    self.client.validate_draft(container, entry['text'])
-                if not self.store.update(entry, ('creating', 'ready'), state='ready', container_id=container):
+                    self.client.validate_draft(container, entry['text'], **image_options)
+                prepared_values = {'asset_ids': entry['asset_ids']} if image_options else {}
+                if not self.store.update(entry, ('creating', 'ready'), state='ready',
+                                         container_id=container, **prepared_values):
                     continue
                 if self.clock() >= timestamp(entry['deadline']) - MIN_LEAD:
                     self.store.update(entry, ('ready',), state='expired')
@@ -477,7 +519,7 @@ class Publisher:
             if not self.store.update(entry, ('ready',), state='publishing'):
                 continue
             try:
-                post = (self.client.publish(container, entry['text'])
+                post = (self.client.publish(container, entry['text'], **image_options)
                         if self.config.provider == 'buffer' else self.client.publish(container))
             except Exception:
                 self.store.update(entry, ('publishing',), state='uncertain',
@@ -501,7 +543,9 @@ class Publisher:
         while entry := self.store.claim_confirmation(self.config, self.clock()):
             deadline = timestamp(entry['deadline'])
             try:
-                post = self.client.publication(entry['post_id'], entry['text'])
+                image_options = ({'image_url': entry['image_url'], 'asset_ids': entry['asset_ids']}
+                                 if entry.get('format')=='ticket-v1' else {})
+                post = self.client.publication(entry['post_id'], entry['text'], **image_options)
                 if post['status'] == 'sent':
                     sent = timestamp(post['sentAt'])
                     if not timestamp(entry['saved_at']) <= sent <= self.clock():
@@ -518,7 +562,7 @@ class Publisher:
                 elif post['status'] == 'scheduled' and self.clock() >= deadline - MIN_LEAD:
                     if self.store.update(entry, ('submitted',), state='withdrawing'):
                         try:
-                            self.client.withdraw(entry['post_id'])
+                            self.client.withdraw(entry['post_id'], **image_options)
                             self.store.update(entry, ('withdrawing',), state='expired',
                                               error='締切が近いためBufferの待機投稿を下書きへ戻しました。')
                         except Exception:
@@ -594,6 +638,7 @@ def public_status():
     result = {'ok': True, 'enabled': enabled, 'date': config.date if config else None,
               'stadium': STADIUM, 'username': USERNAME,
               'provider': config.provider if config else os.getenv('BOAT_THREADS_PROVIDER', 'threads'),
+              'post_format': 'three_lines_ticket_image' if config and config.provider=='buffer' else 'text',
               'from_race': config.first_race if config else None,
               'mode': config.mode if config else os.getenv('BOAT_THREADS_MODE', 'date'),
               'armed': armed, 'phase': phase,
@@ -615,7 +660,7 @@ def public_status():
     try:
         state = PostStore().read()
         result['posts'] = [{k: entry[k] for k in
-                           ('key', 'provider', 'state', 'post_id', 'permalink', 'published_at', 'error')
+                           ('key', 'provider', 'format', 'state', 'post_id', 'permalink', 'published_at', 'error')
                            if k in entry}
                            for entry in state['posts'].values()
                            if entry['key'].startswith(f'auto:{config.date}:{STADIUM}:')]

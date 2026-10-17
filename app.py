@@ -2129,7 +2129,10 @@ register_historical(sys.modules[__name__])
 course_history.start(sys.modules[__name__])
 start_automation(sys.modules[__name__])
 
-from threads_publisher import start as start_threads_publisher, public_status as threads_status
+from threads_publisher import start as start_threads_publisher, public_status as threads_status, PostStore
+from ticket_image import register_route as register_ticket_route
+
+register_ticket_route(app, PostStore)
 
 
 @app.get('/api/threads_publishing')
