@@ -137,20 +137,60 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 .maintenance[open] summary::after{content:"−"}
 .maintenance summary:focus-visible{outline:2px solid var(--accent2);outline-offset:6px;border-radius:4px}
 .maintenance-note{color:var(--muted);font-size:13px;line-height:1.7;margin:16px 0}
+/* Compact race directory and separate information views. */
+:root{--bg:#f4f6fa;--panel:#fff;--panel2:#f5f8fc;--line:#dce4ef;--text:#172b46;--muted:#62738a;--accent:#1476db;--accent2:#1266b8;--good:#16734c;--warn:#966412;--bad:#b33a4c}
+[hidden]{display:none!important}html{scroll-behavior:smooth;scroll-padding-top:74px}body{background:var(--bg);line-height:1.6}.app{max-width:1024px;padding:0 24px 20px}.site-header{height:88px;margin:0;align-items:center}.brand{display:flex;align-items:center;gap:11px;font-size:27px;line-height:1;text-decoration:none;color:var(--text);letter-spacing:-.8px}.brand strong{color:var(--accent);font-weight:900}.brand .brand-mark{display:grid;place-items:center;width:39px;height:39px;border-radius:11px;background:#153c70;color:white;font-size:27px;font-style:italic}.brand small{display:block;font-size:10px;font-weight:500;letter-spacing:1.3px;margin-top:9px;color:var(--muted)}.brand>span:not(.brand-mark){color:var(--text)}.header-label{font-size:10px;letter-spacing:1.8px;font-weight:700;color:var(--muted)}
+.main-nav{display:grid;grid-template-columns:repeat(3,1fr);position:sticky;top:0;z-index:10;background:rgba(255,255,255,.98);border-bottom:1px solid var(--line);margin-bottom:16px;border-radius:10px 10px 0 0;box-shadow:0 3px 8px #173b6510}.main-nav a{text-decoration:none;color:var(--muted);text-align:center;padding:14px 6px 11px;border-bottom:3px solid transparent;font-size:14px;font-weight:800}.main-nav a[aria-current=page]{color:var(--accent2);border-color:var(--accent);background:#f1f7ff}.main-nav a:hover{background:#f5f8fc}
+.panel{border:1px solid var(--line);border-radius:12px;background:white;padding:20px;margin:0 0 16px;box-shadow:0 2px 4px #173b6504}.panel h2{color:var(--text);font-size:17px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.eyebrow{font-size:9px;letter-spacing:1.7px;color:var(--muted);font-weight:700;margin:0 0 4px}.section-heading h1,.section-heading h2{margin:0;font-size:21px;line-height:1.4}.section-hint{font-size:11px;color:var(--muted);white-space:nowrap}.page-heading{margin:24px 2px 18px}.page-heading h1{font-size:25px;margin:0 0 4px}.page-heading>p:last-child{font-size:13px;color:var(--muted);margin:0}
+.automation-panel{padding:12px 18px;border-top:3px solid #ecc357}.automation-panel h2{font-size:12px;margin:0 0 6px}.automation-panel .metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.automation-panel .metric{padding:0 12px;background:white;border-radius:0;border-left:1px solid var(--line)}.automation-panel .metric:first-child{padding-left:0;border-left:0}.automation-panel .metric small{font-size:11px}.automation-panel .metric b{font-size:20px;line-height:1.5;margin-top:0}.automation-panel .metric:first-child b{font-size:14px;min-height:30px;display:flex;align-items:center}.automation-details{margin-top:7px}.automation-details summary{font-size:11px;color:var(--muted);cursor:pointer}.automation-details p{font-size:12px;margin-top:8px!important}.automation-details .status{margin-top:8px}.automation-details>small{display:block;margin-top:6px;font-size:11px}
+button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42px}button{background:#1476db;color:white;box-shadow:none}button:hover:not(:disabled){filter:brightness(.96)}button.secondary{background:#edf4fc;border:1px solid #c5d8ed;color:#1f5a96}select,input{background:white;color:var(--text);border:1px solid #cfd9e6;min-width:0;padding:9px 11px}select:disabled{background:#edf1f6;color:var(--muted)}button:disabled{opacity:.6;cursor:default}button:focus-visible,a:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #4e9ff3;outline-offset:3px}
+.date-navigation{display:grid;grid-template-columns:74px minmax(0,1fr) 74px;align-items:center;gap:12px;background:#f5f8fc;border:1px solid #e5ebf3;border-radius:9px;padding:10px 12px;margin:0 0 20px}.date-navigation label{display:flex;align-items:center;justify-content:center;gap:10px;min-width:0}.date-navigation label>span{font-size:12px;white-space:nowrap;font-weight:700}.date-navigation select{width:165px;min-height:38px;font-size:15px;font-weight:800;border-color:transparent;background:transparent;padding:4px;cursor:pointer}.day-button{background:white;border:1px solid var(--line);color:var(--text);font-size:12px;min-height:36px;padding:5px 9px;white-space:nowrap}.venue-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.venue-heading h2{font-size:13px;margin:0}.venue-heading>span{font-size:11px;color:var(--muted)}.venue-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;border:1px solid var(--line);border-bottom:0;border-right:0;overflow:hidden;border-radius:7px}.venue-tile{background:white;color:var(--text);border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;min-height:68px;padding:9px 4px;font-size:15px;font-weight:800;line-height:1.6;position:relative}.venue-state{display:block;font-size:10px;font-weight:500;color:var(--accent2)}.venue-tile:disabled{background:#edf0f5;color:#7b8799;opacity:1}.venue-tile:disabled .venue-state{color:#7b8799}.venue-tile.selected{background:#e9f3ff;box-shadow:inset 0 0 0 2px #1476db;color:#095aa7}.venue-tile.selected .venue-state{font-weight:800}.venue-tile:hover:not(:disabled){background:#f0f6fe;filter:none}
+.status{background:#eff5fc;color:#355678;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.7}.selection-selects{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}.selection-selects label,.manual-controls label{display:block;font-size:11px;color:var(--muted);font-weight:600}.selection-selects select,.manual-controls select{display:block;width:100%;margin-top:4px}.race-buttons{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:5px;margin:0;grid-column:auto}.race-btn{padding:8px 2px;min-height:40px;border:1px solid #d6e0ed;border-radius:6px;background:#f5f8fc;color:#465c76;font-size:12px;font-weight:700}.race-btn.active{background:#146fc7;color:white;border-color:#146fc7}.race-selection>.panel{padding:12px 0 0;margin:0;border:0;box-shadow:none}.metrics{gap:10px}.metric{padding:12px;background:var(--panel2);border:1px solid #e9eef5;border-radius:8px}.metric b{font-size:19px}.metric small{font-size:11px}.race-selection .metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.race-selection .metric{padding:10px}.race-selection .metric:last-child b{font-size:14px;min-height:30px;display:flex;align-items:center}.manual-actions{margin-top:14px;border-top:1px solid #edf0f5;padding-top:10px}.manual-actions summary,.feature-panel summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}.manual-controls{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:end;gap:8px;margin-top:12px}.manual-controls button{min-height:43px;font-size:12px;padding:7px}
+.bet-navigation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:20px 0 10px}.bet-navigation button{background:#e7edf5;color:#55677d;border:1px solid #dae3ef;font-size:13px;padding:11px 3px}.bet-navigation button[aria-pressed=true]{background:#183d6a;border-color:#183d6a;color:white}.bet-panel h2{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.category-description{font-size:10px;color:var(--muted);font-weight:500}.table-scroll{width:100%;overflow-x:auto}.bet-table th{background:#f6f8fc;font-size:11px;white-space:nowrap;padding:9px 8px}.bet-table td{font-size:12px;padding:12px 8px}.bet-table td:nth-child(2){white-space:nowrap;font-size:17px;color:#173d6b}.bet-table td:last-child{color:var(--muted);max-width:320px}.good{background:#e9f6ee;color:#176d44}.mid{background:#fff6df;color:#8a651b}.low{background:#fff0f1;color:#a64251}.bet-empty{display:none;color:var(--muted);font-size:13px;padding:20px 12px;background:#f6f8fc;text-align:center;border-radius:8px}.bet-panel:not(:has(tbody tr)) .bet-empty{display:block}.bet-panel:not(:has(tbody tr)) .table-scroll{display:none}
+.feature-panel summary{font-size:13px;color:var(--text);padding:2px}.feature-panel details[open] summary{margin-bottom:18px}.cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.boat{background:#f6f8fc;border-color:#e0e8f2;border-radius:9px;padding:13px}.boat .num{font-size:16px}.boat .name{font-size:12px;color:#425a76}.boat .score{font-size:23px;color:#106cc4}.boat small{font-size:11px;color:var(--muted)}.bar{background:#e1e9f4;height:4px}.bar i{background:linear-gradient(90deg,#2479d3,#65b9f6)}
+.performance-category{background:white;border-color:#dce5f0;border-radius:10px;padding:16px}.performance-category .metric{background:#f6f8fc;border:0;padding:10px}.performance-category h4{font-size:16px}.performance-category .metric b{font-size:20px}.performance-period-note{font-size:12px;color:var(--muted)}.performance-date-controls input{color-scheme:light}.performance-controls label{font-size:12px}.performance-period h3{font-size:16px}.performance-historical summary{font-size:13px}.maintenance{background:#fff}.maintenance summary::after{color:#246cba}.maintenance a{color:#1269b9}.footer{border-top:1px solid var(--line);margin-top:24px;padding:18px 10px;font-size:10px;line-height:1.7;color:var(--muted)}
+@media(max-width:760px){.app{padding:0 16px 16px}.site-header{height:78px}.header-label{font-size:8px;letter-spacing:1px}.section-heading h1,.section-heading h2{font-size:20px}.venue-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{padding:17px}.automation-panel{padding:11px 14px}.date-navigation{gap:6px;padding:8px}.date-navigation label{gap:2px;flex-direction:column}.date-navigation select{width:150px;min-height:28px}.date-navigation label>span{font-size:10px}.race-buttons{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.app{padding:0 10px 12px}.site-header{height:72px}.brand{font-size:24px;gap:9px}.brand small{font-size:9px;letter-spacing:.8px}.brand .brand-mark{width:34px;height:34px;font-size:24px}.header-label{display:none}.main-nav{margin-bottom:12px;border-radius:0}.main-nav a{font-size:13px;padding:12px 4px 10px}.panel{border-radius:9px;padding:14px;margin-bottom:12px}.automation-panel{padding:9px 12px}.automation-panel .metric{padding:0 7px;border-top:0;border-right:0;border-bottom:0}.automation-panel .metric small{font-size:9px;white-space:nowrap}.automation-panel .metric b{font-size:18px}.automation-panel .metric:first-child b{font-size:11px;min-height:27px}.automation-panel h2{font-size:11px}.automation-details{margin-top:5px}.automation-details summary{font-size:10px}.section-heading{margin-bottom:14px;gap:6px}.section-hint{font-size:9px}.eyebrow{font-size:8px}.section-heading h1,.section-heading h2{font-size:18px}.date-navigation{grid-template-columns:57px minmax(0,1fr) 57px;margin-bottom:14px;padding:7px 5px}.day-button{padding:4px;font-size:11px}.date-navigation select{font-size:14px;width:139px}.venue-heading h2{font-size:12px}.venue-heading>span{font-size:10px}.venue-tile{min-height:59px;font-size:14px;padding:7px 2px}.venue-state{font-size:9px}.race-selection .metric{padding:7px 5px}.race-selection .metric small{font-size:10px}.race-selection .metric b{font-size:16px}.race-selection .metric:last-child b{font-size:11px;min-height:26px}.selection-selects{gap:8px}.manual-controls{grid-template-columns:1fr 1fr}.manual-controls label{grid-column:1/-1}.bet-navigation{gap:4px;margin-top:16px}.bet-navigation button{font-size:12px;padding:10px 1px;min-height:44px}.bet-panel h2{font-size:17px}.category-description{font-size:9px}.table-scroll{overflow:visible}.bet-table thead{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.bet-table tbody{display:block}.bet-table tr{display:grid;grid-template-columns:26px repeat(3,minmax(0,1fr));gap:6px;padding:14px 0;border-top:1px solid #e4ebf3}.bet-table td{border:0;padding:0;font-size:12px;background:transparent;min-width:0}.bet-table td:nth-child(1){grid-column:1;grid-row:1/3;color:#8694a7;font-size:11px;padding-top:6px}.bet-table td:nth-child(2){grid-column:2/5;font-size:22px;line-height:1.3}.bet-table td:nth-child(3){grid-column:2}.bet-table td:nth-child(4){grid-column:3}.bet-table td:nth-child(5){grid-column:4}.bet-table td:nth-child(3)::before,.bet-table td:nth-child(4)::before,.bet-table td:nth-child(5)::before{display:block;font-size:9px;color:var(--muted);font-weight:400}.bet-table td:nth-child(3)::before{content:'推定確率'}.bet-table td:nth-child(4)::before{content:'オッズ'}.bet-table td:nth-child(5)::before{content:'期待倍率'}.bet-table td:last-child{grid-column:1/-1;max-width:none;font-size:11px!important;background:#f6f8fc;border-radius:5px;padding:7px 9px;margin-top:2px}.bet-table td[colspan]{grid-column:1/-1!important;grid-row:auto!important}.performance-category{padding:13px}.performance-category .metric b{font-size:20px}.page-heading{margin-top:20px}.page-heading h1{font-size:23px}.page-heading>p:last-child{font-size:12px}.maintenance summary small{font-size:10px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
 </style>
 </head>
 <body>
+
 <div class="app">
-<header><div class="brand">BOAT <span>AI</span> 予想</div><div class="badge">LEARNING PROTOTYPE</div></header>
-<section class="hero">
-<h1>展示後に自動予想、結果から学習</h1>
-<div class="sub">開催中の全場を自動で確認します。レースを選ぶと、保存済みの自動予想を表示します。</div>
-<div class="controls">
-<select id="date"></select>
-<select id="stadium"><option value="">開催場を読み込み中...</option></select>
- 
- 
-<select id="race">
+<header class="site-header">
+ <a class="brand" href="#races" aria-label="BOAT AI レース情報"><span class="brand-mark" aria-hidden="true">B</span><span>BOAT <strong>AI</strong><small>予想と実績を、ひとつに。</small></span></a>
+ <span class="header-label">BOAT RACE ANALYSIS</span>
+</header>
+<nav class="main-nav" aria-label="メインメニュー">
+ <a href="#races" id="navRaces" data-nav="races" aria-current="page">レース情報</a>
+ <a href="#performance" id="navPerformance" data-nav="performance">運用実績</a>
+ <a href="#learning" id="navLearning" data-nav="learning">AI学習</a>
+</nav>
+<section aria-live="polite" class="panel automation-panel">
+<h2>自動運用</h2>
+<div class="metrics">
+<div class="metric"><small>運転状態</small><b id="autoPhase">確認中</b></div>
+<div class="metric"><small>本日の自動予想</small><b id="autoPredicted">-</b></div>
+<div class="metric"><small>結果反映済み</small><b id="autoSettled">-</b></div>
+<div class="metric"><small>結果待ち</small><b id="autoPending">-</b></div>
+</div>
+
+
+
+<details class="automation-details"><summary>運用状況の詳細</summary><div class="status" id="autoStatus">自動運転の状況を確認しています。</div><small id="autoLastChecked" style="color:var(--muted)"></small><p style="color:var(--muted);line-height:1.7;margin-bottom:0">開催中の全場が対象です。展示タイム・展示STの公表後に予想を保存し、結果確定後に照合・学習・実績更新を行います。締切に間に合わなかったレースは予想しません。</p></details></section>
+<main>
+<div id="pageRaces" data-page="races">
+ <section class="panel race-directory" aria-labelledby="raceDirectoryTitle">
+  <div class="section-heading"><div><p class="eyebrow">RACE INFORMATION</p><h1 id="raceDirectoryTitle">開催レース</h1></div><span class="section-hint">日付 → 開催場 → レース</span></div>
+  <div class="date-navigation"><button id="previousRaceDay" class="day-button" type="button" onclick="shiftRaceDate(-1)">‹ 前日</button><label for="date"><span id="raceDateLabel">開催日</span><select id="date"></select></label><button id="nextRaceDay" class="day-button" type="button" onclick="shiftRaceDate(1)">翌日 ›</button></div>
+  <div class="venue-heading"><h2>開催場を選ぶ</h2><span id="raceListStatus" aria-live="polite">開催場を確認しています</span></div>
+  <div id="raceList" class="venue-grid" aria-label="全24場の開催状況"></div>
+  <div aria-live="polite" class="status" id="scheduleNotice" role="status"></div><button class="secondary" hidden="" id="scheduleRetry" onclick="loadSchedule()">開催場を再取得</button>
+ </section>
+ <section class="panel race-selection" aria-labelledby="selectedRaceTitle">
+  <div class="section-heading"><div><p class="eyebrow">AI PREDICTION</p><h2 id="selectedRaceTitle">レースを選択</h2></div><span class="section-hint">展示後に自動更新</span></div>
+  <div class="selection-selects"><label for="stadium">開催場<select id="stadium"><option value="">開催場を読み込み中...</option></select></label><label for="race">レース<select id="race">
 <option>1R</option>
 <option>2R</option>
 <option>3R</option>
@@ -163,168 +203,69 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 <option>10R</option>
 <option>11R</option>
 <option>12R</option>
-</select>
-
-
-<select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select>
-<input id="investment" type="hidden" value="100">
-<button id="analyzeBtn" onclick="analyze()" disabled>AI予想</button>
-<button id="settleBtn" class="secondary" onclick="settlePrediction()" disabled>結果取得・学習</button>
-</div>
-<div class="status" id="scheduleNotice" role="status" aria-live="polite"></div>
-<button id="scheduleRetry" class="secondary" onclick="loadSchedule()" hidden>開催場を再取得</button>
-</section>
-
-<section class="panel" style="margin-top:16px" aria-live="polite">
-  <h2>🤖 自動運用</h2>
-  <div class="metrics">
-    <div class="metric"><small>運転状態</small><b id="autoPhase">確認中</b></div>
-    <div class="metric"><small>本日の自動予想</small><b id="autoPredicted">-</b></div>
-    <div class="metric"><small>結果反映済み</small><b id="autoSettled">-</b></div>
-    <div class="metric"><small>結果待ち</small><b id="autoPending">-</b></div>
-  </div>
-  <div class="status" id="autoStatus">自動運転の状況を確認しています。</div>
-  <small id="autoLastChecked" style="color:var(--muted)"></small>
-  <p style="color:var(--muted);line-height:1.7;margin-bottom:0">開催中の全場が対象です。展示タイム・展示STの公表後に予想を保存し、結果確定後に照合・学習・実績更新を行います。締切に間に合わなかったレースは予想しません。</p>
-</section>
-
-<div class="grid">
-<section class="panel"><h2>6艇スコア</h2><div class="cards" id="boats"></div></section>
-<section class="panel"><h2>レース判断</h2><div class="metrics">
+</select></label></div>
+  <div id="raceButtons" class="race-buttons" role="group" aria-label="レース番号"></div>
+  <div class="status" id="reason">開催場とレースを選ぶと、保存済みの予想を表示します。</div><section class="panel"><div class="metrics">
 <div class="metric"><small>本命</small><b id="main">-</b></div><div class="metric"><small>対抗</small><b id="second">-</b></div><div class="metric"><small>穴</small><b id="hole">-</b></div><div class="metric"><small>想定</small><b id="type">-</b></div>
-</div><div class="status" id="reason">「AI予想」を押してください。</div><div class="scenario"><span class="pill active">予想→保存→結果→学習</span></div></section>
-</div>
-
-
-<section class="panel" style="margin-top:16px">
-<h2>🎯 ガチガチ</h2>
-<table>
+</div></section>
+  <details class="manual-actions"><summary>手動で予想・結果を再確認</summary><div class="manual-controls"><label for="fixed">1着の固定<select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select></label><input id="investment" type="hidden" value="100"/><button disabled="" id="analyzeBtn" onclick="analyze()">AI予想</button><button class="secondary" disabled="" id="settleBtn" onclick="settlePrediction()">結果取得・学習</button></div></details>
+ </section>
+ <nav class="bet-navigation" aria-label="買い目の種類">
+  <button type="button" id="categoryGachi" aria-controls="betPanelGachi" data-category="gachi" aria-pressed="true" onclick="showBetCategory('gachi')">🎯 ガチガチ</button>
+  <button type="button" id="categoryRoman" aria-controls="betPanelRoman" data-category="roman" aria-pressed="false" onclick="showBetCategory('roman')">🚀 ロマン砲</button>
+  <button type="button" id="categoryOni" aria-controls="betPanelOni" data-category="oni" aria-pressed="false" onclick="showBetCategory('oni')">👹 鬼しぼり</button>
+ </nav>
+ <section class="panel bet-panel" id="betPanelGachi" data-bet-card="gachi">
+<h2>🎯 ガチガチ<span class="category-description">的中を重視</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
+<div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th>順位</th>
-<th>買い目</th>
-<th>推定確率</th>
-<th>オッズ</th>
-<th>期待倍率</th>
-<th>推奨理由</th>
+<th scope="col">順位</th>
+<th scope="col">買い目</th>
+<th scope="col">推定確率</th>
+<th scope="col">オッズ</th>
+<th scope="col">期待倍率</th>
+<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsGachi"></tbody>
-</table>
-</section>
-
-<section class="panel" style="margin-top:16px">
-<h2>🚀 ロマン砲</h2>
-<table>
+</table></div>
+</section><section class="panel bet-panel" id="betPanelRoman" data-bet-card="roman" hidden="">
+<h2>🚀 ロマン砲<span class="category-description">高配当を狙う</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
+<div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th>順位</th>
-<th>買い目</th>
-<th>推定確率</th>
-<th>オッズ</th>
-<th>期待倍率</th>
-<th>推奨理由</th>
+<th scope="col">順位</th>
+<th scope="col">買い目</th>
+<th scope="col">推定確率</th>
+<th scope="col">オッズ</th>
+<th scope="col">期待倍率</th>
+<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsRoman"></tbody>
-</table>
-</section>
-
-<section class="panel" style="margin-top:16px">
-<h2>👹 鬼しぼり</h2>
-<table>
+</table></div>
+</section><section class="panel bet-panel" id="betPanelOni" data-bet-card="oni" hidden="">
+<h2>👹 鬼しぼり<span class="category-description">期待値から厳選</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
+<div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
-<th>順位</th>
-<th>買い目</th>
-<th>推定確率</th>
-<th>オッズ</th>
-<th>期待倍率</th>
-<th>推奨理由</th>
+<th scope="col">順位</th>
+<th scope="col">買い目</th>
+<th scope="col">推定確率</th>
+<th scope="col">オッズ</th>
+<th scope="col">期待倍率</th>
+<th scope="col">推奨理由</th>
 </tr>
 </thead>
 <tbody id="betsOni"></tbody>
-</table>
+</table></div>
 </section>
- <section class="panel" style="margin-top:16px">
-<h2>AI学習状況</h2>
-
-<div class="metrics">
-<div class="metric">
-<small>新方式の運用学習</small>
-<b id="learnSamples">-</b>
+ <section class="panel feature-panel"><details><summary>6艇スコア・特徴の詳細を見る</summary><h2>6艇スコア</h2><div class="cards" id="boats"></div></details></section>
 </div>
-
-<div class="metric">
-<small>的中数</small>
-<b id="learnHits">-</b>
-</div>
-
-<div class="metric">
-<small>的中率</small>
-<b id="learnRate">-</b>
-</div>
-
-<div class="metric">
-<small>モデル温度</small>
-<b id="learnTemp">-</b>
-</div>
-</div>
-
-<div style="margin-top:16px">
-<div style="color:var(--muted);margin-bottom:10px">
-AIが現在重視している特徴
-</div>
-
-<div id="learnWeights"></div>
-<p id="learnBasis" class="performance-period-note">モーター・展示タイム・節間成績・選手別コース1年成績を使います。</p>
-</div>
-</section>
-<section class="panel" style="margin-top:16px">
-<h2>過去1年の検証・学習</h2>
-<div class="metrics">
-<div class="metric"><small>処理した日数</small><b id="historyDays">-</b></div>
-<div class="metric"><small>学習したレース</small><b id="historySamples">-</b></div>
-<div class="metric"><small>回収率の検証対象</small><b id="historyEvaluated">-</b></div>
-<div class="metric"><small>データ不足・除外</small><b id="historyExcluded">-</b></div>
-</div>
-<div class="bar"><i id="historyProgress" style="width:0%"></i></div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-<button id="historyStart" onclick="controlHistorical('start')">過去1年の検証を開始</button>
-<button id="historyPause" class="secondary" onclick="controlHistorical('pause')" disabled>一時停止</button>
-</div>
-<button id="historyApply" class="secondary" style="margin-top:10px" onclick="controlHistorical('apply_model')" disabled>完了した学習モデルを本番に適用</button>
-<div class="status" id="historyStatus">前日までのモデルで予測し、結果を照合して次の日の学習に使います。画面を閉じても、サーバーが稼働中は処理を続けます。</div>
-<p style="color:var(--muted);font-size:13px">過去検証には保存された締切時オッズを使います。現在の自動予想の実績とは分けて集計し、オッズのないレースは回収率から除外します。通信失敗やサーバー再起動後は、保存済みの位置から再開します。</p>
-<details class="performance-historical" id="historicalPerformance">
-<summary>過去1年の再現検証の成績</summary>
-<p class="performance-period-note">予想を当時保存した運用実績とは異なります。展示・オッズ・結果がそろったレースだけを集計します。</p>
-<div class="performance-categories">
-<section class="performance-category">
-<h4>🎯 ガチガチ</h4>
-<div class="metrics">
-<div class="metric"><small>回収率</small><b id="historyPerfGachiRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="historyPerfGachiHitRate">-</b></div>
-</div>
-</section>
-<section class="performance-category">
-<h4>🚀 ロマン砲</h4>
-<div class="metrics">
-<div class="metric"><small>回収率</small><b id="historyPerfRomanRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="historyPerfRomanHitRate">-</b></div>
-</div>
-</section>
-<section class="performance-category">
-<h4>👹 鬼しぼり</h4>
-<div class="metrics">
-<div class="metric"><small>回収率</small><b id="historyPerfOniRoi">-</b></div>
-<div class="metric"><small>的中率</small><b id="historyPerfOniHitRate">-</b></div>
-</div>
-</section>
-</div>
-</details>
-</section>
-<section class="panel" style="margin-top:16px" id="performancePanel">
+<div id="pagePerformance" data-page="performance" hidden>
+ <div class="page-heading"><p class="eyebrow">PERFORMANCE</p><h1>予想の運用実績</h1><p>日別・場別の成績と、過去からの累計を確認できます。</p></div>
+ <section class="panel" id="performancePanel">
 <h2>運用実績</h2>
 <div class="performance-controls">
 <label for="perfScope">予想の種類（日次・累計に共通）</label>
@@ -333,12 +274,12 @@ AIが現在重視している特徴
 <option value="all">すべての保存記録（手動予想を含む）</option>
 </select>
 </div>
-<section class="performance-period" aria-labelledby="perfDailyTitle">
+<section aria-labelledby="perfDailyTitle" class="performance-period">
 <h3 id="perfDailyTitle">日次実績</h3>
-<label for="perfDate" class="performance-period-note">確認する日付</label>
+<label class="performance-period-note" for="perfDate">確認する日付</label>
 <div class="performance-date-controls">
-<input id="perfDate" type="date" aria-label="実績の日付">
-<button id="perfToday" class="secondary" onclick="showTodayPerformance()">今日</button>
+<input aria-label="実績の日付" id="perfDate" type="date"/>
+<button class="secondary" id="perfToday" onclick="showTodayPerformance()">今日</button>
 </div>
 <div class="performance-controls">
 <label for="perfStadium">確認する開催場（日次のみ）</label>
@@ -388,7 +329,7 @@ AIが現在重視している特徴
 </section>
 </div>
 </section>
-<section class="performance-period" aria-labelledby="perfCumulativeTitle">
+<section aria-labelledby="perfCumulativeTitle" class="performance-period">
 <h3 id="perfCumulativeTitle">累計実績</h3>
 <p class="performance-period-note">保存開始から現在までの全場・全日付を集計します。日次の日付や開催場を変更しても、累計の対象は変わりません。</p>
 <div class="performance-categories">
@@ -424,66 +365,122 @@ AIが現在重視している特徴
 </section>
 </div>
 </section>
-<div class="status" id="perfNote" aria-live="polite">日次・累計の実績を確認しています。</div>
+<div aria-live="polite" class="status" id="perfNote">日次・累計の実績を確認しています。</div>
 </section>
-<details class="panel maintenance" id="maintenance">
-  <summary><span>メンテナンス</span><small>手動の一括操作</small></summary>
-  <p class="maintenance-note">通常は自動運用にお任せください。必要なときは、画面上部で日付・開催場を選び、手動でまとめて再確認できます。</p>
-
-  <div class="metrics">
-    <div class="metric">
-      <small>対象</small>
-      <b id="batchTarget">-</b>
-    </div>
-
-    <div class="metric">
-      <small>進捗</small>
-      <b id="batchProgress">0 / 0</b>
-    </div>
-
-    <div class="metric">
-      <small>成功</small>
-      <b id="batchSuccess">0</b>
-    </div>
-
-    <div class="metric">
-      <small>失敗</small>
-      <b id="batchFailed">0</b>
-    </div>
-  </div>
-
+</div>
+<div id="pageLearning" data-page="learning" hidden>
+ <div class="page-heading"><p class="eyebrow">AI LEARNING</p><h1>AIの学習と検証</h1><p>現在の特徴の重みと、過去1年の検証状況を確認できます。</p></div>
+ <section class="panel">
+<h2>AI学習状況</h2>
+<div class="metrics">
+<div class="metric">
+<small>新方式の運用学習</small>
+<b id="learnSamples">-</b>
+</div>
+<div class="metric">
+<small>的中数</small>
+<b id="learnHits">-</b>
+</div>
+<div class="metric">
+<small>的中率</small>
+<b id="learnRate">-</b>
+</div>
+<div class="metric">
+<small>モデル温度</small>
+<b id="learnTemp">-</b>
+</div>
+</div>
+<div style="margin-top:16px">
+<div style="color:var(--muted);margin-bottom:10px">
+AIが現在重視している特徴
+</div>
+<div id="learnWeights"></div>
+<p class="performance-period-note" id="learnBasis">モーター・展示タイム・節間成績・選手別コース1年成績を使います。</p>
+</div>
+</section><section class="panel">
+<h2>過去1年の検証・学習</h2>
+<div class="metrics">
+<div class="metric"><small>処理した日数</small><b id="historyDays">-</b></div>
+<div class="metric"><small>学習したレース</small><b id="historySamples">-</b></div>
+<div class="metric"><small>回収率の検証対象</small><b id="historyEvaluated">-</b></div>
+<div class="metric"><small>データ不足・除外</small><b id="historyExcluded">-</b></div>
+</div>
+<div class="bar"><i id="historyProgress" style="width:0%"></i></div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-
-  <button id="batchAnalyzeBtn" onclick="batchAnalyze(false)">
+<button id="historyStart" onclick="controlHistorical('start')">過去1年の検証を開始</button>
+<button class="secondary" disabled="" id="historyPause" onclick="controlHistorical('pause')">一時停止</button>
+</div>
+<button class="secondary" disabled="" id="historyApply" onclick="controlHistorical('apply_model')" style="margin-top:10px">完了した学習モデルを本番に適用</button>
+<div class="status" id="historyStatus">前日までのモデルで予測し、結果を照合して次の日の学習に使います。画面を閉じても、サーバーが稼働中は処理を続けます。</div>
+<p style="color:var(--muted);font-size:13px">過去検証には保存された締切時オッズを使います。現在の自動予想の実績とは分けて集計し、オッズのないレースは回収率から除外します。通信失敗やサーバー再起動後は、保存済みの位置から再開します。</p>
+<details class="performance-historical" id="historicalPerformance">
+<summary>過去1年の再現検証の成績</summary>
+<p class="performance-period-note">予想を当時保存した運用実績とは異なります。展示・オッズ・結果がそろったレースだけを集計します。</p>
+<div class="performance-categories">
+<section class="performance-category">
+<h4>🎯 ガチガチ</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfGachiRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfGachiHitRate">-</b></div>
+</div>
+</section>
+<section class="performance-category">
+<h4>🚀 ロマン砲</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfRomanRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfRomanHitRate">-</b></div>
+</div>
+</section>
+<section class="performance-category">
+<h4>👹 鬼しぼり</h4>
+<div class="metrics">
+<div class="metric"><small>回収率</small><b id="historyPerfOniRoi">-</b></div>
+<div class="metric"><small>的中率</small><b id="historyPerfOniHitRate">-</b></div>
+</div>
+</section>
+</div>
+</details>
+</section><details class="panel maintenance" id="maintenance">
+<summary><span>メンテナンス</span><small>手動の一括操作</small></summary>
+<p class="maintenance-note">手動の一括処理は、レース情報で選択している日付・開催場が対象です。必要なときだけ再確認できます。 <a href="#races">対象を変更する</a></p>
+<div class="metrics">
+<div class="metric">
+<small>対象</small>
+<b id="batchTarget">-</b>
+</div>
+<div class="metric">
+<small>進捗</small>
+<b id="batchProgress">0 / 0</b>
+</div>
+<div class="metric">
+<small>成功</small>
+<b id="batchSuccess">0</b>
+</div>
+<div class="metric">
+<small>失敗</small>
+<b id="batchFailed">0</b>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+<button id="batchAnalyzeBtn" onclick="batchAnalyze(false)">
     🤖 選択場12RをAI分析
   </button>
-
-  <button id="batchAnalyzeAllBtn" onclick="batchAnalyze(true)">
+<button id="batchAnalyzeAllBtn" onclick="batchAnalyze(true)">
     🤖 全場AI分析
   </button>
-
-  <button
-    id="batchSettleBtn"
-    class="secondary"
-    onclick="batchSettle(false)"
-  >
+<button class="secondary" id="batchSettleBtn" onclick="batchSettle(false)">
     📊 選択場12Rを結果取得・学習
   </button>
-
-  <button
-    id="batchSettleAllBtn"
-    class="secondary"
-    onclick="batchSettle(true)"
-  >
+<button class="secondary" id="batchSettleAllBtn" onclick="batchSettle(true)">
     📊 全場結果取得・学習
   </button>
-
 </div>
-
-  <div class="status" id="batchStatus">
+<div class="status" id="batchStatus">
     一括処理はまだ実行していません。
   </div>
 </details>
+</div>
+</main>
 <div class="footer">推定確率・期待倍率はモデル計算による参考値です。的中や利益を保証するものではありません。</div>
 </div>
 
@@ -556,68 +553,86 @@ async function fetchPredictionJson(url,options={},timeoutMs=15000,controller=new
   }
 }
  
+const VENUE_NAMES=['桐生','戸田','江戸川','平和島','多摩川','浜名湖','蒲郡','常滑','津','三国','びわこ','住之江','尼崎','鳴門','丸亀','児島','宮島','徳山','下関','若松','芦屋','福岡','唐津','大村'];
+let listedVenues=[];
+function showPage(view){
+  if(!['races','performance','learning'].includes(view)) view='races';
+  document.querySelectorAll('[data-page]').forEach(page=>{page.hidden=page.getAttribute('data-page')!==view;});
+  document.querySelectorAll('[data-nav]').forEach(link=>{
+    if(link.getAttribute('data-nav')===view) link.setAttribute('aria-current','page');
+    else link.removeAttribute('aria-current');
+  });
+}
+function showPageFromHash(){
+  showPage((window.location?.hash||'#races').slice(1));
+  window.scrollTo?.({top:0,behavior:'auto'});
+}
+function showBetCategory(category){
+  if(!['gachi','roman','oni'].includes(category)) return;
+  document.querySelectorAll('[data-bet-card]').forEach(card=>{card.hidden=card.getAttribute('data-bet-card')!==category;});
+  document.querySelectorAll('[data-category]').forEach(button=>{button.setAttribute('aria-pressed',String(button.getAttribute('data-category')===category));});
+}
+function syncRaceDate(){
+  const select=document.getElementById('date');
+  const previous=document.getElementById('previousRaceDay'), next=document.getElementById('nextRaceDay');
+  if(previous) previous.disabled=select.selectedIndex>=select.options.length-1;
+  if(next) next.disabled=select.selectedIndex<=0;
+  const day=String(select.value||'');
+  const label=document.getElementById('raceDateLabel');
+  if(label&&/^\d{8}$/.test(day)){
+    const date=new Date(day.slice(0,4)+'-'+day.slice(4,6)+'-'+day.slice(6)+'T00:00:00+09:00');
+    label.textContent=(day===performanceTodayDate().replace(/-/g,'')?'本日':'開催日')+'（'+date.toLocaleDateString('ja-JP',{weekday:'short',timeZone:'Asia/Tokyo'})+'）';
+  }
+}
+function shiftRaceDate(direction){
+  const select=document.getElementById('date');
+  const index=select.selectedIndex-direction;
+  if(index<0||index>=select.options.length) return;
+  select.value=select.options[index].value;
+  loadSchedule();
+}
+function syncRaceSelection(){
+  const stadium=document.getElementById('stadium');
+  const name=listedVenues.find(venue=>venue.stadium===stadium.value)?.venue;
+  const title=document.getElementById('selectedRaceTitle');
+  if(title) title.textContent=name ? name+' '+document.getElementById('race').value+'の予想' : 'レースを選択';
+  document.querySelectorAll('.venue-tile').forEach(button=>{
+    const selected=button.value===stadium.value&&!button.disabled;
+    if(selected) button.classList.add('selected');else button.classList.remove('selected');
+    button.setAttribute?.('aria-pressed',String(selected));
+  });
+}
+function selectVenue(stadium){
+  const select=document.getElementById('stadium');
+  if(select.disabled||!listedVenues.some(venue=>venue.stadium===stadium)) return;
+  select.value=stadium;
+  document.getElementById('settleBtn').disabled=true;
+  renderRaceButtons();
+  loadSelectedSavedPrediction();
+  document.getElementById('selectedRaceTitle')?.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
+}
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
   const status=document.getElementById('raceListStatus');
-
-  if(!container || !status) return;
-
+  if(!container||!status) return;
   container.innerHTML='';
-
-  if(!venues || !venues.length){
-    status.textContent='この日の開催場はありません。';
-    return;
-  }
-
-  status.textContent=
-    `${venues.length}場・最大${venues.length*12}レースを表示しています。`;
-
-  venues.forEach(v=>{
-    const venue=document.createElement('div');
-    venue.className='race-venue';
-
-    const title=document.createElement('div');
-    title.className='race-venue-title';
-    title.textContent=v.venue;
-
-    const grid=document.createElement('div');
-    grid.className='race-grid';
-
-    for(let race=1;race<=12;race++){
-      const btn=document.createElement('button');
-
-      btn.type='button';
-      btn.className='race-list-btn';
-      btn.textContent=race+'R';
-
-      btn.onclick=()=>{
-        const stadiumSelect=document.getElementById('stadium');
-        const raceSelect=document.getElementById('race');
-
-        stadiumSelect.value=v.stadium;
-        raceSelect.value=race+'R';
-
-        document.getElementById('settleBtn').disabled=true;
-
-        renderRaceButtons();
-        loadSelectedSavedPrediction();
-
-        window.scrollTo({
-          top:0,
-          behavior:'smooth'
-        });
-      };
-
-      grid.appendChild(btn);
-    }
-
-    venue.appendChild(title);
-    venue.appendChild(grid);
-    container.appendChild(venue);
+  listedVenues=venues||[];
+  status.textContent=listedVenues.length ? listedVenues.length+'場で開催' : 'この日の開催場はありません。';
+  VENUE_NAMES.forEach((name,index)=>{
+    const stadium=String(index+1).padStart(2,'0');
+    const active=listedVenues.some(venue=>venue.stadium===stadium);
+    const button=document.createElement('button');
+    button.type='button';button.className='venue-tile';button.value=stadium;button.disabled=!active;
+    button.textContent=name;button.setAttribute?.('aria-label',name+' '+(active?'開催あり':'開催なし'));
+    const state=document.createElement('span');state.className='venue-state';state.textContent=active?'開催':'開催なし';button.appendChild(state);
+    button.onclick=()=>selectVenue(stadium);
+    container.appendChild(button);
   });
+  syncRaceSelection();
 }
 
 async function loadSchedule(){
+  syncRaceDate();
   cancelManualAnalysis();
   if(savedPredictionRequest) savedPredictionRequest.controller.abort();
   savedPredictionRequest=null;
@@ -953,6 +968,7 @@ async function loadAutomationStatus(){
 
 async function loadSelectedSavedPrediction(){
   if(document.getElementById('stadium').disabled) return;
+  renderRaceButtons();
   const params=getParams();
   if(!params.stadium) return;
   const key=predictionKey(params);
@@ -1014,7 +1030,7 @@ function dateString(d){
  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
 }
 function setupDates(){
- const el=document.getElementById('date'); const today=new Date();
+ const el=document.getElementById('date'); const today=new Date(performanceTodayDate()+'T12:00:00');
  for(let i=0;i<7;i++){
   const d=new Date(today); d.setDate(today.getDate()-i);
   const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
@@ -1023,6 +1039,7 @@ function setupDates(){
  el.value=dateString(today);
 }
 function renderRaceButtons(){
+  syncRaceSelection();
   const container=document.getElementById('raceButtons');
   const raceSelect=document.getElementById('race');
 
@@ -1036,6 +1053,7 @@ function renderRaceButtons(){
     btn.type='button';
     btn.className='race-btn';
     btn.textContent=i+'R';
+    btn.setAttribute?.('aria-pressed',String(Number(raceSelect.value.replace(/[^0-9]/g,''))===i));
 
     if(Number(raceSelect.value.replace(/[^0-9]/g,''))===i){
       btn.classList.add('active');
@@ -1048,7 +1066,7 @@ function renderRaceButtons(){
         x.classList.remove('active');
       });
 
-      btn.classList.add('active');
+      renderRaceButtons();
 
       document.getElementById('settleBtn').disabled=true;
       loadSelectedSavedPrediction();
@@ -1675,6 +1693,8 @@ document.getElementById('perfDate').addEventListener('change',()=>{
   loadPerformanceStatus();
 });
 setupDates();
+showPageFromHash();
+window.addEventListener('hashchange',showPageFromHash);
 loadSchedule();
 renderRaceButtons();
 loadLearningStatus();
@@ -1693,5 +1713,3 @@ setInterval(()=>{
 </script>
 </body>
 </html>
-
-
