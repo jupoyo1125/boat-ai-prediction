@@ -247,7 +247,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <tbody id="betsRoman"></tbody>
 </table></div>
 </section><section class="panel bet-panel" id="betPanelOni" data-bet-card="oni" hidden="">
-<h2>👹 鬼しぼり<span class="category-description">期待値から厳選</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
+<h2>👹 鬼しぼり<span class="category-description" id="oniSelectionBasis">ガチガチから3点</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
 <div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
@@ -670,6 +670,7 @@ async function loadSchedule(){
     document.getElementById('boats').innerHTML='';
     for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
     for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
+    document.getElementById('oniSelectionBasis').textContent='ガチガチから3点';
     document.getElementById('reason').textContent='開催場を選ぶと、保存済みの予想を確認します。';
     const raceList=document.getElementById('raceList');
     if(raceList) raceList.innerHTML='';
@@ -991,6 +992,7 @@ async function loadSelectedSavedPrediction(){
     document.getElementById('boats').innerHTML='';
     for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
     for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
+    document.getElementById('oniSelectionBasis').textContent='ガチガチから3点';
     document.getElementById('reason').textContent='保存済みの自動予想を確認しています。';
   }
   try{
@@ -1295,6 +1297,10 @@ function renderAnalysis(x){
       b => b.category === 'oni'
     );
 
+  const oniFromGachi = x.oni_selection_rule === 'gachi-top3-probability-v1';
+  document.getElementById('oniSelectionBasis').textContent =
+    oniFromGachi ? 'ガチガチから3点' : '旧ルールの保存予想';
+
   function getReason(
     b,
     category
@@ -1382,8 +1388,10 @@ function renderAnalysis(x){
 
     // 👹 鬼しぼり
     if(category === 'oni'){
-
-      return `AI確率${prob}% × オッズ${odds}倍で期待倍率${ev}。期待値と的中可能性のバランスが高い厳選候補。`;
+      if(oniFromGachi){
+        return `ガチガチ${gachi.length}点から的中確率を優先して${oni.length}点に厳選。同じ確率なら期待倍率を優先。AI確率${prob}%・オッズ${odds}倍・期待倍率${ev}。`;
+      }
+      return `旧ルールで保存した買い目です。全買い目から期待値を重視して選出。AI確率${prob}%・オッズ${odds}倍・期待倍率${ev}。`;
     }
 
     return 'AIによる候補判定';
@@ -1492,11 +1500,12 @@ function renderAnalysis(x){
               text-align:center;
               font-weight:bold;
             ">
-          👹 今回は買わない方がいい
+          👹 買い目なし
           <br>
           <small>
-            EV 1.00以上の買い目がありません。
-            無理に購入せず見送り推奨です。
+            ${oniFromGachi
+              ? 'ガチガチの候補がないため、鬼しぼりもありません。'
+              : '保存時の旧ルールではEV 1.00以上の候補がなく、見送りでした。'}
           </small>
         </td>
       </tr>

@@ -71,6 +71,41 @@ async function run() {
   assert.ok(automatic.calls.every(call=>!call.options?.method));
   console.log('PASS: Selecting an automatic forecast renders its saved bets without creating a new prediction.');
 
+  const gachiTickets = ['1-2-3','1-2-4','1-3-2','1-3-4','1-4-2',
+    '1-4-3','1-2-5','1-3-5','1-4-5','1-5-2'].map((bet,index)=>({
+      bet,category:'gachi',odds:2,probability:.10-index*.005,ev:.20-index*.01}));
+  const newPrediction = {...prediction,oni_selection_rule:'gachi-top3-probability-v1',
+    bets:[...gachiTickets,...gachiTickets.slice(0,3).map(bet=>({...bet,category:'oni'}))]};
+  const narrowed=context(url=>url.startsWith('/api/saved_prediction?') ?
+    response({ok:true,record:{...saved,prediction:newPrediction,bets:newPrediction.bets}}) : undefined);
+  await narrowed.run('loadSelectedSavedPrediction()');
+  assert.equal(narrowed.elements.get('oniSelectionBasis').textContent,'ガチガチから3点');
+  const newRows=narrowed.elements.get('betsOni').innerHTML;
+  assert.equal((newRows.match(/<tr>/g)||[]).length,3);
+  assert.match(newRows,/ガチガチ10点から的中確率を優先して3点に厳選/);
+  assert.doesNotMatch(newRows,/見送り|旧ルール|6-1-5/);
+  assert.ok(narrowed.calls.every(call=>!call.options?.method));
+  console.log('PASS: New Oni forecasts show the three saved Gachi selections even below EV 1 without regenerating them.');
+
+  const oldPrediction={...prediction,bets:[...gachiTickets,
+    {bet:'6-1-5',category:'oni',odds:574.7,probability:.0103,ev:5.89}]};
+  const legacy=context(url=>url.startsWith('/api/saved_prediction?') ?
+    response({ok:true,record:{...saved,prediction:oldPrediction,bets:oldPrediction.bets}}) : undefined);
+  const oldSnapshot=JSON.stringify(oldPrediction);
+  await legacy.run('loadSelectedSavedPrediction()');
+  assert.equal(legacy.elements.get('oniSelectionBasis').textContent,'旧ルールの保存予想');
+  assert.match(legacy.elements.get('betsOni').innerHTML,/6-1-5/);
+  assert.match(legacy.elements.get('betsOni').innerHTML,/旧ルールで保存/);
+  assert.doesNotMatch(legacy.elements.get('betsOni').innerHTML,/ガチガチ10点から/);
+  assert.equal(JSON.stringify(oldPrediction),oldSnapshot);
+  assert.ok(legacy.calls.every(call=>!call.options?.method));
+  console.log('PASS: Existing saved Oni tickets retain their original contents and are clearly labeled as the old rule.');
+
+  narrowed.run('renderAnalysis('+JSON.stringify({...newPrediction,bets:[]})+')');
+  assert.match(narrowed.elements.get('betsOni').innerHTML,/ガチガチの候補がない/);
+  assert.doesNotMatch(narrowed.elements.get('betsOni').innerHTML,/EV 1.00/);
+  console.log('PASS: An empty new forecast explains missing Gachi candidates rather than the removed EV cutoff.');
+
   const rates=context(); await rates.run('loadPerformanceStatus()');
   assert.equal(rates.elements.get('perfGachiRoi').textContent,'99.0%');
   rates.elements.get('perfScope').value='all'; await rates.run('loadPerformanceStatus()');
