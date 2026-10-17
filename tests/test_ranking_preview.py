@@ -57,6 +57,8 @@ class RankingPreviewTests(unittest.TestCase):
             self.assertEqual(preview[field], regular[field])
         self.assertNotIn('ranking_only', regular)
         self.assertEqual(regular['bets'], [{'bet': '1-2-3'}])
+        self.assertEqual(regular['oni_selection_rule'], core.ONI_SELECTION_RULE)
+        self.assertNotIn('oni_selection_rule', preview)
         self.save.assert_not_called()
 
     def test_rank_only_api_is_explicit_read_only_and_not_cached(self):

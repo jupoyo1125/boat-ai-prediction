@@ -68,6 +68,7 @@ HEAD = {'User-Agent': 'Mozilla/5.0 (compatible; BOAT-AI/4.0)'}
 LEDGER = Path('performance_ledger.json')
 BET_UNIT = 100
 BET_CATEGORIES = ('gachi', 'roman', 'oni')
+ONI_SELECTION_RULE = 'gachi-top3-probability-v1'
 # Shared by manual batches and the automatic runner. Never fan out by venue.
 _official_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='official')
 _official_slots = OfficialRequestSlots(3)
@@ -887,9 +888,8 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
     second_scores = {x['boat']: x.get('second_score', x['score']) for x in boats}
     third_scores = {x['boat']: x.get('third_score', x['score']) for x in boats}
 
-    temperature = float(
-        (load_model() if model is None else model).get('temperature', 12.0)
-    )
+    prediction_model = load_model() if model is None else model
+    temperature = float(prediction_model.get('temperature', 12.0))
 
     combos = []
 
@@ -1093,49 +1093,19 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
     # 👹 鬼しぼり
     # ==================================================
 
-    ONI_MIN_EV = 1.0
-
-    oni_pool = [
-        x for x in available
-        if x['ev'] is not None
-        and float(x['ev']) >= ONI_MIN_EV
-    ]
-
-    def oni_score(x):
-
-        probability = float(
-            x['probability']
-        )
-
-        odds_value = float(
-            x['odds']
-        )
-
-        ev_value = float(
-            x['ev']
-        )
-
-        # EVを中心に、
-        # 確率とオッズも加味する
-        score = (
-            ev_value * 0.50
-            +
-            probability * 100 * 0.30
-            +
-            min(odds_value / 100, 10) * 0.20
-        )
-
-        return score
-
+    # ガチガチの候補内で、3点合計の的中確率を優先する。
+    # 高配当だけを理由に候補外の買い目へ入れ替えない。
     oni = sorted(
-        oni_pool,
+        gachi,
         key=lambda x: (
-            oni_score(x),
-            x['ev'],
-            x['probability']
+            x['probability'],
+            x['ev'] if x['ev'] is not None else -1
         ),
         reverse=True
     )[:3]
+    if model_feature_schema(prediction_model) != FEATURE_SCHEMA:
+        # Keep an already-running legacy replay on its original selection rule.
+        oni = _legacy_oni_bets(available)
 
     # 同じ買い目が別区分に含まれても、区分名を上書きしない。
     return (
@@ -1143,6 +1113,19 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
         + [dict(x, category='roman') for x in roman]
         + [dict(x, category='oni') for x in oni]
     )
+
+
+def _legacy_oni_bets(available):
+    candidates = [x for x in available if x['ev'] is not None and float(x['ev']) >= 1.0]
+
+    def priority(bet):
+        probability, odds_value, ev = float(bet['probability']), float(bet['odds']), float(bet['ev'])
+        score = ev * .50 + probability * 100 * .30 + min(odds_value / 100, 10) * .20
+        return score, bet['ev'], bet['probability']
+
+    return sorted(candidates, key=priority, reverse=True)[:3]
+
+
 def feature_snapshot(boats):
     if boats and boats[0].get('feature_schema') == FEATURE_SCHEMA:
         return {str(row['boat']): {key: row[key + 's'] for key in FEATURE_KEYS} for row in boats}
@@ -1987,6 +1970,8 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
                  + (' 展示進入未確定・成績なしの項目は中立評価です。' if current_features else ''),
         'source':source,'before_source':before_source,'odds_source':odds_source
     }
+    if not ranking_only:
+        result['oni_selection_rule'] = (ONI_SELECTION_RULE if current_features else 'legacy-ev-v1')
     if ranking_only:
         result.update(ranking_only=True, date=date, stadium=jcd, race=race,
                       notice=basis_notice + 'に基づく取得時点の評価順です。展示進入未確定・成績なしの項目は中立評価です。オッズと買い目は含みません。')
