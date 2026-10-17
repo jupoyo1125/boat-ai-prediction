@@ -104,6 +104,20 @@ class PredictionFeatureTests(unittest.TestCase):
         self.assertTrue(bets)
         self.assertGreater(next(b['probability'] for b in bets if b['bet'] == '1-2-3'), 1 / 120)
 
+    def test_requested_baseline_is_used_for_each_finish_position(self):
+        raw = {b: [str(b), '', f'400{b}/A1 選手', '.15', '0 0', '0 0', f'12 {b * 10} 60']
+               for b in range(1, 7)}
+        before = {'exhibition': {b: 7 - b / 10 for b in range(1, 7)},
+                  'entry_course': {b: b for b in range(1, 7)}}
+        meeting = {b: {'finishes': [{'place': b}]} for b in range(1, 7)}
+        boats = analyze_features(raw, 'none', before, snapshot(), model.DEFAULT, meeting)
+        # Boat 1 only leads meeting form and the second-place course rate.
+        # Boat 6 leads motor, exhibition and first/third-place course rates.
+        self.assertEqual([boats[0][key] for key in ('score', 'second_score', 'third_score')],
+                         [5.0, 55.0, 5.0])
+        self.assertEqual([boats[5][key] for key in ('score', 'second_score', 'third_score')],
+                         [95.0, 45.0, 95.0])
+
 
 class VersionAndStoreTests(unittest.TestCase):
     def test_switch_preserves_old_evidence_without_reusing_its_weights(self):
@@ -113,7 +127,7 @@ class VersionAndStoreTests(unittest.TestCase):
         new = model.upgrade_state(old)
         self.assertEqual(new['legacy_model'], old)
         self.assertEqual((new['samples'], new['hits'], new['feature_samples']), (1730, 707, 0))
-        self.assertEqual(new['weights'], {k: .25 for k in ('motor', 'exhibition', 'meeting', 'course')})
+        self.assertEqual(new['weights'], {'motor': .15, 'exhibition': .30, 'meeting': .05, 'course': .50})
         old_features = {'nation': 80, 'motor': 40, 'history': 100}
         model.learn_from_features(new, old_features, 2, 1, old_features, persist=False)
         self.assertEqual(new['weights'], model.DEFAULT['weights'])
@@ -123,12 +137,40 @@ class VersionAndStoreTests(unittest.TestCase):
 
     def test_new_vectors_train_new_weights_and_count_once(self):
         state = copy.deepcopy(model.DEFAULT)
+        before = state['weights'].copy()
         predicted = {k: 50 for k in state['weights']}
         actual = dict(predicted, course=100, motor=0)
         model.learn_from_features(state, predicted, 2, 1, actual, persist=False)
-        self.assertGreater(state['weights']['course'], state['weights']['motor'])
+        self.assertGreater(state['weights']['course'], before['course'])
+        self.assertLess(state['weights']['motor'], before['motor'])
         self.assertEqual((state['feature_samples'], state['samples']), (1, 1))
         self.assertAlmostEqual(sum(state['weights'].values()), 1, places=3)
+
+    def test_existing_model_adopts_baseline_once_and_keeps_subsequent_learning(self):
+        old = copy.deepcopy(model.DEFAULT)
+        old.pop('weight_baseline_version')
+        old.update(weights={'motor': .24, 'exhibition': .26, 'meeting': .23, 'course': .27},
+                   samples=1800, hits=720, feature_samples=12, feature_hits=3,
+                   temperature=12.4, updated_at='2026-10-17T13:00:00',
+                   legacy_model={'samples': 1788, 'hits': 717})
+        with TemporaryDirectory() as directory, mock.patch.object(model, '_db_enabled', return_value=False), \
+             mock.patch.object(model, 'PATH', str(Path(directory) / 'model.json')):
+            Path(model.PATH).write_text(json.dumps(old))
+            state = model.load()
+            self.assertEqual(state['weights'], {'motor': .15, 'exhibition': .30, 'meeting': .05, 'course': .50})
+            self.assertEqual(state['weight_baseline_version'], model.WEIGHT_BASELINE_VERSION)
+            for key in ('samples', 'hits', 'feature_samples', 'feature_hits', 'temperature', 'legacy_model'):
+                self.assertEqual(state[key], old[key])
+            self.assertEqual(state['weight_baseline_history'], [{
+                'version': None, 'weights': old['weights'], 'updated_at': old['updated_at']}])
+            predicted = {key: 50 for key in model.FEATURE_KEYS}
+            model.learn_from_features(state, predicted, 2, 1,
+                                      dict(predicted, course=100, motor=0))
+            self.assertNotEqual(state['weights'], model.DEFAULT['weights'])
+            reloaded = model.load()
+            self.assertEqual(reloaded, state)
+            self.assertEqual(len(reloaded['weight_baseline_history']), 1)
+            self.assertEqual((reloaded['samples'], reloaded['feature_samples']), (1801, 13))
 
     def test_missing_year_returns_pending_without_official_requests_or_empty_prediction(self):
         with mock.patch.object(store, 'available_days', return_value=set()), \
