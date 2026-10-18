@@ -68,15 +68,31 @@ class BufferClient:
         assets = value.get('assets')
         if image_url:
             if (not isinstance(assets, list) or len(assets)!=1
-                    or not isinstance(assets[0], dict) or not isinstance(assets[0].get('id'), str)
-                    or not assets[0]['id'] or assets[0].get('type')!='image'
-                    or assets[0].get('mimeType') not in ('image/png', 'image/jpeg')
-                    or urlsplit(assets[0].get('source', '')).scheme!='https'
-                    or (asset_ids is not None and [a['id'] for a in assets]!=asset_ids)):
+                    or not isinstance(assets[0], dict)):
+                raise ThreadsError('Buffer ticket image does not match the draft')
+            asset = assets[0]
+            source, identifier = asset.get('source'), asset.get('id')
+            valid_id = (isinstance(identifier, str) and bool(identifier)
+                        or identifier is None and source==image_url)
+            if (asset.get('type')!='image' or not valid_id
+                    or asset.get('mimeType') not in ('image/png', 'image/jpeg')
+                    or not isinstance(source, str) or urlsplit(source).scheme!='https'):
+                raise ThreadsError('Buffer ticket image does not match the draft')
+            # A later Buffer read may assign an ID. Source-pinned drafts still
+            # require the same frozen URL instead of switching identity modes.
+            reference = ('source:'+source if asset_ids==['source:'+image_url]
+                         else self.asset_reference(asset))
+            if asset_ids is not None and [reference]!=asset_ids:
                 raise ThreadsError('Buffer ticket image does not match the draft')
         elif assets != []:
             raise ThreadsError('Unexpected Buffer attachment')
         return value
+
+    @staticmethod
+    def asset_reference(asset):
+        # Buffer's Asset.id is nullable for URL-backed images. Pin the exact
+        # immutable source instead, while retaining normal ID-based references.
+        return asset.get('id') or 'source:' + asset['source']
 
     def action(self, operation, input_type, values, text=None, **image_options):
         data = self.request(
@@ -98,7 +114,7 @@ class BufferClient:
         }, text, image_url=image_url)
         if post['status'] != 'draft':
             raise WrongAccount('Buffer did not return a private draft')
-        return ({'id': post['id'], 'asset_ids': [a['id'] for a in post['assets']]}
+        return ({'id': post['id'], 'asset_ids': [self.asset_reference(a) for a in post['assets']]}
                 if image_url else post['id'])
 
     def publication(self, post_id, text=None, **image_options):

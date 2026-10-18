@@ -124,5 +124,41 @@ class ImageAdapterTests(unittest.TestCase):
         with self.assertRaises(tp.ThreadsError):
             self.client.validate_draft(post['id'],self.text,**self.options)
 
+    def test_nullable_buffer_asset_id_uses_the_exact_immutable_source(self):
+        post=buffer_post(ticket=True)
+        post['assets'][0].update(id=None,source=self.url)
+        self.response.json.return_value={'data':{'createPost':{'post':post}}}
+        created=self.client.create(self.text,image_url=self.url)
+        self.assertEqual(created['asset_ids'],['source:'+self.url])
+        options={'image_url':self.url,'asset_ids':created['asset_ids']}
+        self.response.json.return_value={'data':{'post':post}}
+        self.client.validate_draft(created['id'],self.text,**options)
+        post['assets'][0]['id']='assigned-after-creation'
+        self.client.validate_draft(created['id'],self.text,**options)
+        post['status']='sending'
+        self.response.json.return_value={'data':{'editPost':{'post':post}}}
+        self.client.publish(created['id'],self.text,**options)
+        self.assertNotIn('assets',self.session.request.call_args.kwargs['json']['variables']['input'])
+        self.response.json.return_value={'data':{'post':post}}
+        self.assertEqual(self.client.publication(created['id'],self.text,**options)['status'],'sending')
+
+    def test_nullable_id_rejects_a_changed_source_and_invalid_ids(self):
+        for changes in [
+            {'id':None,'source':'https://example.com/another.png'},
+            {'id':None,'source':self.url.replace('/2/','/3/')},
+            {'id':'','source':self.url},
+            {'id':123,'source':self.url},
+        ]:
+            post=buffer_post(ticket=True);post['assets'][0].update(changes)
+            self.response.json.return_value={'data':{'createPost':{'post':post}}}
+            with self.subTest(changes=changes),self.assertRaises(tp.ThreadsError):
+                self.client.create(self.text,image_url=self.url)
+        post=buffer_post(ticket=True)
+        post['assets'][0].update(source='https://example.com/swapped.png')
+        self.response.json.return_value={'data':{'post':post}}
+        with self.assertRaises(tp.ThreadsError):
+            self.client.validate_draft(post['id'],self.text,
+                image_url=self.url,asset_ids=['source:'+self.url])
+
 
 if __name__=='__main__':unittest.main()
