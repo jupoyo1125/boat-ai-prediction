@@ -1,4 +1,4 @@
-"""Publish frozen, exhibition-backed Heiwajima forecasts once, before close.
+"""Publish frozen, exhibition-backed forecasts for one configured venue.
 
 Disabled by default. Supports Buffer or the official Threads API with separate
 server credentials; ChatGPT's Metricool connection cannot be reused here.
@@ -16,6 +16,7 @@ from uuid import uuid4
 import requests
 
 from prediction_features import FEATURE_SCHEMA
+from race_venues import STADIUMS
 from state_store import state_connection, require_storage_writable, strict_state_reads
 
 JST = timezone(timedelta(hours=9))
@@ -42,9 +43,10 @@ class LinePromotion:
     date: str
     race: int
     url: str
+    stadium: str = STADIUM
 
     def matches(self, row):
-        return (row.get('date') == self.date and row.get('stadium') == STADIUM
+        return (row.get('date') == self.date and row.get('stadium') == self.stadium
                 and row.get('race') == self.race)
 
 
@@ -59,6 +61,7 @@ class Config:
     start_date: str = ''
     until_date: str = ''
     line_promotion: LinePromotion | None = None
+    stadium: str = STADIUM
 
 
 def valid_date(value):
@@ -77,9 +80,11 @@ def line_promotion_configuration():
     # An incomplete campaign must not fall back to exposing the selected picks.
     date = valid_date(date)
     race = int(race)
-    if not 1 <= race <= 12 or not re.fullmatch(r'https://lin\.ee/[A-Za-z0-9_-]{1,100}', url):
+    stadium = os.getenv('BOAT_THREADS_LINE_PROMO_STADIUM', STADIUM).strip().zfill(2)
+    if (stadium not in STADIUMS or not 1 <= race <= 12
+            or not re.fullmatch(r'https://lin\.ee/[A-Za-z0-9_-]{1,100}', url)):
         raise ValueError('invalid LINE promotion')
-    return LinePromotion(date, race, url)
+    return LinePromotion(date, race, url, stadium)
 
 
 def configuration(now=None):
@@ -102,6 +107,9 @@ def configuration(now=None):
         first = int(os.getenv('BOAT_THREADS_FROM_RACE', ''))
         if not 1 <= first <= 12 or (mode == 'daily' and first != 1):
             return None
+        stadium = os.getenv('BOAT_THREADS_STADIUM', STADIUM).strip().zfill(2)
+        if stadium not in STADIUMS:
+            return None
         promotion = line_promotion_configuration()
     except (TypeError, ValueError):
         return None
@@ -110,12 +118,14 @@ def configuration(now=None):
         token = os.getenv('BUFFER_API_KEY', '').strip()
         channel = os.getenv('BOAT_BUFFER_CHANNEL_ID', '').strip()
         if token and channel and len(channel) <= 256:
-            return Config(date, first, token, provider, channel, mode, start_date, until_date, promotion)
+            return Config(date, first, token, provider, channel, mode, start_date, until_date,
+                          promotion, stadium)
         return None
     if provider != 'threads':
         return None  # Never fall back to a different account or provider.
     token = os.getenv('THREADS_ACCESS_TOKEN', '').strip()
-    return Config(date, first, token, provider, '', mode, start_date, until_date, promotion) if token else None
+    return Config(date, first, token, provider, '', mode, start_date, until_date,
+                  promotion, stadium) if token else None
 
 
 def scope_active(config, now):
@@ -174,6 +184,7 @@ def complete_exhibition(prediction):
 def caption(row, promotion=None):
     """Copy saved rankings and all three buy lists; never re-run the model."""
     prediction = row['prediction']
+    venue = STADIUMS[row['stadium']]
     current_features = prediction.get('feature_schema') == FEATURE_SCHEMA
     exhibition_label = '展示タイム' if current_features else '展示タイム・展示ST'
     boats = {b['boat']: b for b in prediction['boats']}
@@ -212,7 +223,7 @@ def caption(row, promotion=None):
     if promotion and promotion.matches(row):
         # Keep the same saved/exhibition-backed eligibility and outbox identity,
         # but never put the selected racers or actual buy lists in this post.
-        text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜無料予想LINE🚤】\n\n'
+        text = (f'【{int(date[4:6])}/{int(date[6:8])} {venue}{row["race"]}R｜無料予想LINE🚤】\n\n'
                 'このレースの展示後予想は、LINEで無料配信🙌\n'
                 f'独自サイトが{exhibition_label}を反映した予想をお届けします。\n\n'
                 '🎯ガチガチ／🚀ロマン砲／👹鬼しぼり\n'
@@ -223,7 +234,7 @@ def caption(row, promotion=None):
         if len(text) > 500:
             raise ValueError('post text exceeds the allowed format')
         return text
-    text = (f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後・独自サイト予想🚤】\n'
+    text = (f'【{int(date[4:6])}/{int(date[6:8])} {venue}{row["race"]}R｜展示後・独自サイト予想🚤】\n'
             '独自サイト予想の保存内容です。\n\n'
             + '\n'.join(lines) + '\n\n' + '\n\n'.join(groups)
             + f'\n\n{timestamp(row["prediction_saved_at"]):%H:%M}保存／'
@@ -237,8 +248,8 @@ def candidate(row, config, now):
     try:
         race = int(row.get('race', 0))
         if (not scope_active(config, now) or row.get('date') != config.date
-                or row.get('stadium') != STADIUM or not config.first_race <= race <= 12
-                or row.get('id') != f'auto:{config.date}:{STADIUM}:{race:02d}'
+                or row.get('stadium') != config.stadium or not config.first_race <= race <= 12
+                or row.get('id') != f'auto:{config.date}:{config.stadium}:{race:02d}'
                 or row.get('prediction_origin') != 'automatic' or row.get('settled')
                 or row.get('actual_combo') or row.get('learned')):
             return None
@@ -275,9 +286,10 @@ def ticket_caption(row):
             f'展示最速は{"".join(marks[n] for n in sorted(fastest))}（{fastest_time:.2f}秒）'
             + ('・同タイム' if len(fastest)>1 else ''))
     date = row['date']
+    venue = STADIUMS[row['stadium']]
     text = (f'本命：{main[2:].split("（", 1)[0]}\n'
             f'軸：{second[3:].split("（", 1)[0]}\n今回の注目点：{note}\n\n'
-            f'【{int(date[4:6])}/{int(date[6:8])} 平和島{row["race"]}R｜展示後・独自サイト予想🚤】\n'
+            f'【{int(date[4:6])}/{int(date[6:8])} {venue}{row["race"]}R｜展示後・独自サイト予想🚤】\n'
             '3タイプの買い目は舟券風画像へ👇\n'
             f'{timestamp(row["prediction_saved_at"]):%H:%M}保存／'
             f'締切{timestamp(row["scheduled_deadline"]):%H:%M}\n\n'
@@ -325,7 +337,7 @@ class PostStore:
         def change(state):
             entries = sorted(state['posts'].values(), key=lambda p: p['deadline'])
             for entry in entries:
-                if not entry['key'].startswith(f'auto:{config.date}:{STADIUM}:'):
+                if not entry['key'].startswith(f'auto:{config.date}:{config.stadium}:'):
                     continue
                 race = int(entry['key'].rsplit(':', 1)[1])
                 if not config.first_race <= race <= 12:
@@ -356,7 +368,7 @@ class PostStore:
         def change(state):
             for entry in sorted(state['posts'].values(), key=lambda p: p['deadline']):
                 if (entry['state'] != 'submitted' or entry.get('provider') != 'buffer'
-                        or not entry['key'].startswith(f'auto:{config.date}:{STADIUM}:')
+                        or not entry['key'].startswith(f'auto:{config.date}:{config.stadium}:')
                         or int(entry['key'].rsplit(':', 1)[1]) < config.first_race):
                     continue
                 if entry.get('next_check_at') and now < timestamp(entry['next_check_at']):
@@ -636,12 +648,15 @@ def public_status():
     phase = ('watching' if enabled else 'scheduled' if armed else
              'expired' if config and scope_finished(config, now) else 'disabled')
     result = {'ok': True, 'enabled': enabled, 'date': config.date if config else None,
-              'stadium': STADIUM, 'username': USERNAME,
+              'stadium': config.stadium if config else os.getenv('BOAT_THREADS_STADIUM', STADIUM),
+              'venue': STADIUMS.get(config.stadium) if config else None,
+              'username': USERNAME,
               'provider': config.provider if config else os.getenv('BOAT_THREADS_PROVIDER', 'threads'),
               'post_format': 'three_lines_ticket_image' if config and config.provider=='buffer' else 'text',
               'from_race': config.first_race if config else None,
               'mode': config.mode if config else os.getenv('BOAT_THREADS_MODE', 'date'),
               'armed': armed, 'phase': phase,
+              'worker_running': _runner is not None and _runner.is_alive(),
               'start_date': (config.start_date or config.date) if config else None,
               'until_date': (config.until_date or (config.date if config.mode == 'date' else None))
                             if config else None,
@@ -649,12 +664,12 @@ def public_status():
                             {'state': 'unchecked', 'checked_at': None}}
     if config and config.line_promotion:
         promotion = config.line_promotion
-        result['line_promotion'] = {'date': promotion.date, 'stadium': STADIUM,
+        result['line_promotion'] = {'date': promotion.date, 'stadium': promotion.stadium,
                                     'race': promotion.race, 'url': promotion.url,
                                     'active_today': promotion.date == config.date,
                                     'content': 'line_invitation'}
     if not enabled:
-        result['message'] = ('開始日まで待機しています。平和島の開催日は全12Rが対象です。'
+        result['message'] = ('開始日まで待機しています。指定場の開催日は全12Rが対象です。'
                              if armed else '投稿設定が無効、設定不足、または対象期間外です。')
         return result
     try:
@@ -663,7 +678,7 @@ def public_status():
                            ('key', 'provider', 'format', 'state', 'post_id', 'permalink', 'published_at', 'error')
                            if k in entry}
                            for entry in state['posts'].values()
-                           if entry['key'].startswith(f'auto:{config.date}:{STADIUM}:')]
+                           if entry['key'].startswith(f'auto:{config.date}:{config.stadium}:')]
     except Exception:
         result.update(ok=False, enabled=False, armed=False, phase='error',
                       message='投稿記録の保存先に接続できません。')

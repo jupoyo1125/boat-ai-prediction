@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta
+from itertools import permutations
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import line_bot as lb
 import line_broadcast as broadcast
+from line_prediction import FIXED_FIRST_RULE
 import test_line_bot as fixtures
 
 
@@ -74,6 +76,34 @@ class BroadcastTests(unittest.TestCase):
         self.assertEqual(self.store.sample(self.now), self.sample())
         self.assertEqual(self.store.read_day(self.now)['events'], {})
         self.assertNotIn('not-a-token', json.dumps(self.store.state))
+
+    def test_fixed_first_sample_uses_saved_conditional_picks_and_sends_only_once(self):
+        self.core.STADIUMS['02'] = '戸田'
+        self.row = fixtures.forecast(date='20261017', stadium='02', race=12)
+        combos = ['-'.join(map(str, p)) for p in permutations(range(1, 7), 3) if p[0]==4]
+        special_bets = [{'category': category, 'bet': combo}
+                        for category, picks in [('gachi', combos[:10]),
+                                                 ('roman', combos[10:]), ('oni', combos[:3])]
+                        for combo in picks]
+        self.row['prediction'] = {'line_forecast': {
+            'rule': FIXED_FIRST_RULE, 'first': 4, 'bets': special_bets}}
+        self.rows = [self.row]
+        original = deepcopy(self.row)
+        with mock.patch.dict(os.environ, {'BOAT_LINE_SAMPLE_RACE': '20261017:02:12',
+                                         'BOAT_LINE_FIXED_FIRST': '20261017:02:12:4'}):
+            for _ in range(2):
+                self.assertEqual(self.publisher.run_once(), 'accepted')
+            payload = self.sender.multicast.call_args.args[0]
+            self.assertIn('指定条件：4号艇を1着固定', payload['messages'][0]['text'])
+            sample = self.store.sample(self.now)
+            self.assertTrue(all(b.startswith('4-') for group in sample['groups'].values() for b in group))
+            self.sender.multicast.assert_called_once()
+        self.assertEqual(self.row, original)
+
+    def test_fixed_condition_without_a_saved_conditional_snapshot_waits_instead_of_sending(self):
+        with mock.patch.dict(os.environ, {'BOAT_LINE_FIXED_FIRST': '20261017:04:5:4'}):
+            self.assertEqual(self.publisher.run_once(), 'waiting_for_prediction')
+        self.factory.assert_not_called()
 
     def test_repeated_scans_and_restart_do_not_repeat_an_accepted_broadcast(self):
         self.publisher.run_once()
