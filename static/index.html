@@ -228,7 +228,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <tbody id="betsGachi"></tbody>
 </table></div>
 </section><section class="panel bet-panel" id="betPanelRoman" data-bet-card="roman" hidden="">
-<h2>🚀 ロマン砲<span class="category-description">高配当を狙う</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
+<h2>🚀 ロマン砲<span class="category-description" id="romanSelectionBasis">高配当・ガチガチと重複なし</span></h2><p class="bet-empty">展示後の自動予想が保存されると、買い目が表示されます。</p>
 <div class="table-scroll"><table class="bet-table">
 <thead>
 <tr>
@@ -737,6 +737,7 @@ async function loadSchedule(){
     for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
     for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
     document.getElementById('oniSelectionBasis').textContent='ガチガチから3点';
+    document.getElementById('romanSelectionBasis').textContent='高配当・ガチガチと重複なし';
     document.getElementById('reason').textContent='開催場を選ぶと、保存済みの予想を確認します。';
     const raceList=document.getElementById('raceList');
     if(raceList) raceList.innerHTML='';
@@ -1115,6 +1116,7 @@ async function loadSelectedSavedPrediction(){
     for(const id of ['main','second','hole','type']) document.getElementById(id).textContent='-';
     for(const id of ['betsGachi','betsRoman','betsOni']) document.getElementById(id).innerHTML='';
     document.getElementById('oniSelectionBasis').textContent='ガチガチから3点';
+    document.getElementById('romanSelectionBasis').textContent='高配当・ガチガチと重複なし';
     document.getElementById('reason').textContent='保存済みの自動予想を確認しています。';
   }
   try{
@@ -1419,6 +1421,9 @@ function renderAnalysis(x){
   const oniFromGachi=x.oni_selection_rule==='gachi-top3-probability-v1';
   document.getElementById('oniSelectionBasis').textContent=
     oniFromGachi ? 'ガチガチから3点' : '旧ルールの保存予想';
+  const romanExcludesGachi=x.roman_selection_rule==='exclude-gachi-v1';
+  document.getElementById('romanSelectionBasis').textContent=
+    romanExcludesGachi ? '高配当・ガチガチと重複なし' : '旧ルールの保存予想';
   for(const [category,id] of [['gachi','Gachi'],['roman','Roman'],['oni','Oni']]){
     const selected=displayBets(category);
     document.getElementById('bets'+id).innerHTML=selected.map(bet=>{
@@ -1431,6 +1436,11 @@ function renderAnalysis(x){
       document.getElementById('betsOni').innerHTML='<tr><td colspan="2">👹 買い目なし<br><small>'+
         (oniFromGachi ? 'ガチガチの候補がないため、鬼しぼりもありません。' :
           '保存時の旧ルールでは買い目がなく、見送りでした。')+'</small></td></tr>';
+    }
+    if(category==='roman'&&!selected.length){
+      document.getElementById('betsRoman').innerHTML='<tr><td colspan="2">🚀 買い目なし<br><small>'+
+        (romanExcludesGachi ? 'ガチガチとの重複を除くと、高配当の条件を満たす候補がありません。' :
+          '保存時の旧ルールでは、条件を満たす買い目がありませんでした。')+'</small></td></tr>';
     }
   }
 }

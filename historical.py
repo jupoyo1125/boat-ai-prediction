@@ -77,6 +77,7 @@ def new_job(start, end):
             'phase': 'queued', 'enabled': True, 'days_done': 0, 'visited': 0,
             'evaluated': 0, 'missing_odds': 0, 'missing_features': 0, 'excluded_results': 0,
             'model': copy.deepcopy(model.DEFAULT), 'day_model': None,
+            'roman_excludes_gachi': True,
             'history': [], 'results': None, 'position': 0,
             'category_stats': empty_stats(), 'day_stats': empty_stats(), 'recent': [],
             'failures': 0, 'retry_at': None, 'started_at': now_jst().isoformat(timespec='seconds'),
@@ -253,7 +254,7 @@ class HistoricalRunner:
         updated.update(phase='running', error=None, failures=0, retry_at=None)
         return checkpoint(state, updated)
 
-    def forecast(self, date, result, hist, day_model):
+    def forecast(self, date, result, hist, day_model, *, exclude_gachi_from_roman=False):
         jcd, race = result['stadium'], result['race']
         prefix = f'{self.core.BASE}'
         query = f'?hd={date}&jcd={jcd}&rno={race:02d}'
@@ -291,7 +292,8 @@ class HistoricalRunner:
             if ('締切時オッズ' not in html
                     or sum(value is not None and value > 0 for value in odds.values()) != 120):
                 odds = None
-        bets = (self.core.build_bets(boats, odds, 'none', self.core.scenario(boats, before), model=day_model)
+        bets = (self.core.build_bets(boats, odds, 'none', self.core.scenario(boats, before), model=day_model,
+                                    exclude_gachi_from_roman=exclude_gachi_from_roman)
                 if odds is not None else None)
         return {'main': max(boats, key=lambda row: row['score'])['boat'],
                 'features': self.core.feature_snapshot(boats), 'bets': bets}
@@ -311,7 +313,8 @@ class HistoricalRunner:
         workers = 1 if 7 <= now_jst().hour < 23 else 3
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [(index, pool.submit(self.forecast, date, official,
-                       hist_cache[official['stadium']], state['day_model']))
+                       hist_cache[official['stadium']], state['day_model'],
+                       exclude_gachi_from_roman=state.get('roman_excludes_gachi', False)))
                        for index, official in enumerate(targets) if not official.get('excluded')]
             for index, future in futures:
                 forecasts[index] = future.result()
