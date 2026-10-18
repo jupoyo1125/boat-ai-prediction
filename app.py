@@ -69,6 +69,7 @@ LEDGER = Path('performance_ledger.json')
 BET_UNIT = 100
 BET_CATEGORIES = ('gachi', 'roman', 'oni')
 ONI_SELECTION_RULE = 'gachi-top3-probability-v1'
+ROMAN_SELECTION_RULE = 'exclude-gachi-v1'
 # Shared by manual batches and the automatic runner. Never fan out by venue.
 _official_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='official')
 _official_slots = OfficialRequestSlots(3)
@@ -972,7 +973,8 @@ def _softmax(values, temperature=12.0):
     s = sum(ex) or 1.0
     return [x/s for x in ex]
 
-def build_bets(boats, odds, fixed, scenario_name=None, model=None):
+def build_bets(boats, odds, fixed, scenario_name=None, model=None, *,
+               exclude_gachi_from_roman=None):
 
     scores = {
         x['boat']: x['score']
@@ -984,6 +986,8 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
 
     prediction_model = load_model() if model is None else model
     temperature = float(prediction_model.get('temperature', 12.0))
+    if exclude_gachi_from_roman is None:
+        exclude_gachi_from_roman = model_feature_schema(prediction_model) == FEATURE_SCHEMA
 
     combos = []
 
@@ -1139,10 +1143,13 @@ def build_bets(boats, odds, fixed, scenario_name=None, model=None):
     ROMAN_MIN_ODDS = 50.0
     ROMAN_MIN_PROBABILITY = 0.002
 
+    # 補完後のガチガチを除いてから10点を選ぶ。配当・確率条件は緩めない。
+    gachi_bets = {x['bet'] for x in gachi} if exclude_gachi_from_roman else set()
     roman_pool = [
         x for x in available
         if float(x['odds']) >= ROMAN_MIN_ODDS
         and float(x['probability']) >= ROMAN_MIN_PROBABILITY
+        and x['bet'] not in gachi_bets
     ]
 
     def roman_priority(x):
@@ -2068,6 +2075,7 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
     }
     if not ranking_only:
         result['oni_selection_rule'] = (ONI_SELECTION_RULE if current_features else 'legacy-ev-v1')
+        result['roman_selection_rule'] = (ROMAN_SELECTION_RULE if current_features else 'legacy-overlap-v1')
     if ranking_only:
         result.update(ranking_only=True, date=date, stadium=jcd, race=race,
                       notice=basis_notice + 'に基づく取得時点の評価順です。展示進入未確定・成績なしの項目は中立評価です。オッズと買い目は含みません。')

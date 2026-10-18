@@ -1,11 +1,11 @@
-"""Selection contract: Oni narrows the Gachi tickets rather than chasing odds."""
+"""Selection contracts: Roman excludes Gachi; Oni narrows Gachi."""
 import unittest
 
 import app as core
 import model
 
 
-class OniSelectionTests(unittest.TestCase):
+class BetSelectionTests(unittest.TestCase):
     def boats(self, equal=False):
         return [{'boat': boat, 'score': 50 if equal else 95 - boat * 10}
                 for boat in range(1, 7)]
@@ -15,6 +15,54 @@ class OniSelectionTests(unittest.TestCase):
                                model=model.DEFAULT)
         return {category: [bet for bet in bets if bet['category'] == category]
                 for category in core.BET_CATEGORIES}
+
+    def test_roman_uses_remaining_candidates_to_fill_ten_without_gachi_overlap(self):
+        odds = {''.join(map(str, order)): 100.0
+                for order in core.permutations(range(1, 7), 3)}
+        for fixed in ('none', '1', '2', '3', '4', '5', '6'):
+            for scenario in ('逃げ', '差し', 'まくり・まくり差し', None):
+                with self.subTest(fixed=fixed, scenario=scenario):
+                    selected = self.select(odds, fixed=fixed, equal=True, scenario=scenario)
+                    gachi = {bet['bet'] for bet in selected['gachi']}
+                    roman = {bet['bet'] for bet in selected['roman']}
+                    oni = {bet['bet'] for bet in selected['oni']}
+                    self.assertEqual((len(gachi), len(roman), len(oni)), (10, 10, 3))
+                    self.assertTrue(gachi.isdisjoint(roman))
+                    self.assertTrue(oni <= gachi)
+                    self.assertTrue(oni.isdisjoint(roman))
+                    if fixed != 'none':
+                        self.assertTrue(all(bet.startswith(fixed + '-') for bet in roman))
+
+    def test_roman_also_excludes_gachi_supplements_when_odds_are_incomplete(self):
+        selected = self.select({'123': 60, '456': 70, '651': 80}, equal=True)
+        self.assertEqual({bet['bet'] for bet in selected['gachi']},
+                         {'1-2-3', '4-5-6', '6-5-1'})
+        self.assertEqual(selected['roman'], [])
+
+    def test_roman_shortfall_does_not_relax_odds_or_probability(self):
+        odds = {''.join(map(str, order)): 10.0
+                for order in core.permutations(range(1, 7), 3)}
+        odds.update({'123': 100.0, '312': 50.0, '321': 49.9, '654': 1000000.0})
+        selected = self.select(odds)
+        self.assertIn('1-2-3', {bet['bet'] for bet in selected['gachi']})
+        self.assertEqual([bet['bet'] for bet in selected['roman']], ['3-1-2'])
+
+    def test_legacy_replay_can_retain_overlapping_roman_tickets(self):
+        odds = {''.join(map(str, order)): 100.0
+                for order in core.permutations(range(1, 7), 3)}
+        bets = core.build_bets(self.boats(equal=True), odds, '1', model=model.LEGACY_DEFAULT)
+        gachi = {bet['bet'] for bet in bets if bet['category'] == 'gachi'}
+        roman = {bet['bet'] for bet in bets if bet['category'] == 'roman'}
+        self.assertEqual(gachi, roman)
+
+    def test_existing_current_feature_replay_can_keep_its_original_roman_rule(self):
+        odds = {''.join(map(str, order)): 100.0
+                for order in core.permutations(range(1, 7), 3)}
+        bets = core.build_bets(self.boats(equal=True), odds, '1', model=model.DEFAULT,
+                               exclude_gachi_from_roman=False)
+        gachi = {bet['bet'] for bet in bets if bet['category'] == 'gachi'}
+        roman = {bet['bet'] for bet in bets if bet['category'] == 'roman'}
+        self.assertEqual(gachi, roman)
 
     def test_high_payout_outside_gachi_cannot_enter_oni(self):
         odds = {''.join(map(str, order)): 10.0

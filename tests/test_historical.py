@@ -95,7 +95,7 @@ class HistoricalTests(unittest.TestCase):
     def test_restarting_resumes_once_and_freezes_the_model_for_each_date(self):
         state = self.job()
         observed = []
-        def forecast(date, result, hist, day_model):
+        def forecast(date, result, hist, day_model, **kwargs):
             observed.append((date, result['race'], day_model['samples']))
             return prediction()
         self.runner.forecast = forecast
@@ -119,7 +119,7 @@ class HistoricalTests(unittest.TestCase):
 
     def test_missing_odds_can_train_but_never_contributes_to_category_roi(self):
         self.job(days=1, races=1)
-        self.runner.forecast = lambda *args: prediction(bets=False)
+        self.runner.forecast = lambda *args, **kwargs: prediction(bets=False)
         self.runner.run_once()
         state = historical.read_job()
         self.assertEqual(state['model']['samples'], 1)
@@ -152,7 +152,7 @@ class HistoricalTests(unittest.TestCase):
         self.assertEqual(state['phase'], 'retry')
         state['retry_at'] = None
         historical.write_job(state)
-        self.runner.forecast = lambda *args: prediction()
+        self.runner.forecast = lambda *args, **kwargs: prediction()
         self.runner.run_once()
         recovered = historical.read_job()
         self.assertEqual(recovered['phase'], 'running')
@@ -166,7 +166,7 @@ class HistoricalTests(unittest.TestCase):
         historical.control(core, 'pause')
         historical.control(core, 'resume')
         self.assertEqual(historical.public_status()['phase'], 'queued')
-        self.runner.forecast = lambda *args: prediction()
+        self.runner.forecast = lambda *args, **kwargs: prediction()
         self.runner.run_once()
         self.assertEqual(historical.public_status()['phase'], 'running')
         self.assertEqual(historical.public_status()['samples'], 3)
@@ -207,7 +207,7 @@ class HistoricalTests(unittest.TestCase):
 
     def test_pause_during_external_requests_discards_batch_and_resume_retries_safely(self):
         self.job(days=1, races=1)
-        def forecast(*args):
+        def forecast(*args, **kwargs):
             historical.control(core, 'pause')
             return prediction()
         self.runner.forecast = forecast
@@ -215,20 +215,35 @@ class HistoricalTests(unittest.TestCase):
         self.assertEqual(historical.read_job()['model']['samples'], 0)
         self.assertFalse(historical.read_job()['enabled'])
         historical.control(core, 'resume')
-        self.runner.forecast = lambda *args: prediction()
+        self.runner.forecast = lambda *args, **kwargs: prediction()
         self.runner.run_once()
         self.assertEqual(historical.read_job()['model']['samples'], 1)
 
     def test_stale_worker_cannot_commit_after_another_worker(self):
         state = self.job(days=1, races=1)
-        self.runner.forecast = lambda *args: prediction()
+        self.runner.forecast = lambda *args, **kwargs: prediction()
         self.runner.process_batch(state)
         self.assertFalse(self.runner.process_batch(state))
         self.assertEqual(historical.read_job()['model']['samples'], 1)
 
+    def test_restarted_jobs_keep_the_roman_rule_chosen_when_the_job_started(self):
+        for new_rule in (False, True):
+            with self.subTest(new_rule=new_rule):
+                state = self.job(days=1, races=1)
+                self.assertTrue(state['roman_excludes_gachi'])
+                if not new_rule:
+                    state.pop('roman_excludes_gachi')
+                    historical.write_job(state)
+                restarted = historical.HistoricalRunner(core)
+                restarted.forecast = mock.Mock(return_value=prediction())
+                self.assertTrue(restarted.run_once())
+                self.assertEqual(restarted.forecast.call_args.kwargs,
+                                 {'exclude_gachi_from_roman': new_rule})
+                self.assertEqual(historical.read_job().get('roman_excludes_gachi', False), new_rule)
+
     def test_three_categories_use_saved_bet_count_and_official_payout(self):
         self.job(days=1, races=1)
-        self.runner.forecast = lambda *args: prediction()
+        self.runner.forecast = lambda *args, **kwargs: prediction()
         self.runner.run_once()
         status = historical.public_status()
         for stats in status['category_stats'].values():

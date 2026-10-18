@@ -75,11 +75,16 @@ async function run() {
     '1-4-3','1-2-5','1-3-5','1-4-5','1-5-2'].map((bet,index)=>({
       bet,category:'gachi',odds:2,probability:.10-index*.005,ev:.20-index*.01}));
   const newPrediction = {...prediction,oni_selection_rule:'gachi-top3-probability-v1',
-    bets:[...gachiTickets,...gachiTickets.slice(0,3).map(bet=>({...bet,category:'oni'}))]};
+    roman_selection_rule:'exclude-gachi-v1',
+    bets:[...gachiTickets,...gachiTickets.slice(0,3).map(bet=>({...bet,category:'oni'})),
+      {bet:'3-1-2',category:'roman',odds:50,probability:.02,ev:1}]};
   const narrowed=context(url=>url.startsWith('/api/saved_prediction?') ?
     response({ok:true,record:{...saved,prediction:newPrediction,bets:newPrediction.bets}}) : undefined);
   await narrowed.run('loadSelectedSavedPrediction()');
   assert.equal(narrowed.elements.get('oniSelectionBasis').textContent,'ガチガチから3点');
+  assert.equal(narrowed.elements.get('romanSelectionBasis').textContent,'高配当・ガチガチと重複なし');
+  assert.match(narrowed.elements.get('betsRoman').innerHTML,/3-1-2/);
+  assert.doesNotMatch(narrowed.elements.get('betsRoman').innerHTML,/1-2-3/);
   const newRows=narrowed.elements.get('betsOni').innerHTML;
   assert.equal((newRows.match(/<tr>/g)||[]).length,3);
   assert.doesNotMatch(newRows,/推定確率|期待倍率|推奨理由|AI確率/);
@@ -89,12 +94,16 @@ async function run() {
   console.log('PASS: New Oni forecasts show the three saved Gachi selections even below EV 1 without regenerating them.');
 
   const oldPrediction={...prediction,bets:[...gachiTickets,
+    {...gachiTickets[0],category:'roman'},
     {bet:'6-1-5',category:'oni',odds:574.7,probability:.0103,ev:5.89}]};
   const legacy=context(url=>url.startsWith('/api/saved_prediction?') ?
     response({ok:true,record:{...saved,prediction:oldPrediction,bets:oldPrediction.bets}}) : undefined);
   const oldSnapshot=JSON.stringify(oldPrediction);
   await legacy.run('loadSelectedSavedPrediction()');
   assert.equal(legacy.elements.get('oniSelectionBasis').textContent,'旧ルールの保存予想');
+  assert.equal(legacy.elements.get('romanSelectionBasis').textContent,'旧ルールの保存予想');
+  assert.match(legacy.elements.get('betsGachi').innerHTML,/1-2-3/);
+  assert.match(legacy.elements.get('betsRoman').innerHTML,/1-2-3/);
   assert.match(legacy.elements.get('betsOni').innerHTML,/6-1-5/);
   assert.doesNotMatch(legacy.elements.get('betsOni').innerHTML,/推定確率|期待倍率|推奨理由/);
   assert.doesNotMatch(legacy.elements.get('betsOni').innerHTML,/ガチガチ10点から/);
@@ -105,6 +114,7 @@ async function run() {
   narrowed.run('renderAnalysis('+JSON.stringify({...newPrediction,bets:[]})+')');
   assert.match(narrowed.elements.get('betsOni').innerHTML,/ガチガチの候補がない/);
   assert.doesNotMatch(narrowed.elements.get('betsOni').innerHTML,/EV 1.00/);
+  assert.match(narrowed.elements.get('betsRoman').innerHTML,/ガチガチとの重複を除くと/);
   console.log('PASS: An empty new forecast explains missing Gachi candidates rather than the removed EV cutoff.');
 
   const compact=context();
@@ -141,6 +151,7 @@ async function run() {
   await empty.run('loadSelectedSavedPrediction()');
   assert.equal(empty.elements.get('main').textContent,'-');
   assert.equal(empty.elements.get('betsGachi').innerHTML,'');
+  assert.equal(empty.elements.get('romanSelectionBasis').textContent,'高配当・ガチガチと重複なし');
   assert.equal(empty.elements.get('analyzeBtn').disabled,false);
   assert.equal(empty.elements.get('fixed').disabled,false);
   assert.equal(empty.elements.get('settleBtn').disabled,true);
