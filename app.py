@@ -116,12 +116,7 @@ def _ensure_ledger_table():
             """
         )
         conn.commit()
-STADIUMS = {
-    '01':'桐生','02':'戸田','03':'江戸川','04':'平和島','05':'多摩川','06':'浜名湖',
-    '07':'蒲郡','08':'常滑','09':'津','10':'三国','11':'びわこ','12':'住之江',
-    '13':'尼崎','14':'鳴門','15':'丸亀','16':'児島','17':'宮島','18':'徳山',
-    '19':'下関','20':'若松','21':'芦屋','22':'福岡','23':'唐津','24':'大村'
-}
+from race_venues import STADIUMS
 def normalize_date(value):
     return str(value or datetime.now().strftime('%Y%m%d')).replace('/', '').replace('-', '')
     
@@ -2076,6 +2071,12 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
     if not ranking_only:
         result['oni_selection_rule'] = (ONI_SELECTION_RULE if current_features else 'legacy-ev-v1')
         result['roman_selection_rule'] = (ROMAN_SELECTION_RULE if current_features else 'legacy-overlap-v1')
+        if fixed == 'none':
+            from line_prediction import prepare_forecast
+            line_forecast = prepare_forecast(date, jcd, race, boats, odds, race_scenario,
+                                             model, build_bets)
+            if line_forecast is not None:
+                result['line_forecast'] = line_forecast
     if ranking_only:
         result.update(ranking_only=True, date=date, stadium=jcd, race=race,
                       notice=basis_notice + 'に基づく取得時点の評価順です。展示進入未確定・成績なしの項目は中立評価です。オッズと買い目は含みません。')

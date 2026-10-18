@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 from PIL import Image, ImageDraw, ImageFont
+from race_venues import STADIUMS
 
 ORIGIN = 'https://boat-ai-prediction.onrender.com'
 GROUPS = (('gachi', 'ガチガチ', 10), ('roman', 'ロマン砲', 10), ('oni', '鬼しぼり', 3))
@@ -20,7 +21,8 @@ def snapshot(row):
     """List exact individual combinations; do not expand a formation."""
     date, race = row['date'], row['race']
     datetime.strptime(date, '%Y%m%d')
-    if row.get('stadium') != '04' or type(race) is not int or not 1 <= race <= 12:
+    stadium = row.get('stadium')
+    if stadium not in STADIUMS or type(race) is not int or not 1 <= race <= 12:
         raise ValueError('invalid ticket scope')
     bets = row.get('bets') or []
     if not bets or any(b.get('category') not in {g[0] for g in GROUPS} for b in bets):
@@ -42,7 +44,8 @@ def snapshot(row):
         if dt.tzinfo is None or dt.strftime('%Y%m%d') != date:
             raise ValueError('invalid ticket time')
         times[key] = dt.strftime('%H:%M')
-    return {'version': 1, 'date': date, 'race': race, 'groups': groups, **times}
+    return {'version': 2, 'date': date, 'stadium': stadium, 'venue': STADIUMS[stadium],
+            'race': race, 'groups': groups, **times}
 
 
 @lru_cache(maxsize=16)
@@ -59,7 +62,7 @@ def _render(serialized, preview):
     def text(x, y, value, size=28, fill='#22221F', anchor='lt'):
         draw.text((x, y), str(value), font=font(size), fill=fill, anchor=anchor)
     d = item['date']; date_label = f'{d[:4]}/{d[4:6]}/{d[6:]}'
-    text(52, 32, f'平和島 {item["race"]}R｜展示後予想', 47)
+    text(52, 32, f'{item["venue"]} {item["race"]}R｜展示後予想', 47)
     text(1146, 47, '独自サイト予想', 27, anchor='rt')
     text(55, 92, '形式見本・過去の予想（締切済み）' if preview else
          f'{date_label}　保存 {item["prediction_saved_at"]} ／ 締切 {item["scheduled_deadline"]}', 23)
@@ -70,7 +73,7 @@ def _render(serialized, preview):
         draw.line((302, top+19, 302, top+height-21), fill='#22221F', width=2)
         for x in range(67, 1128, 13):
             draw.line((x, top+height-12, x+5, top+height-12), fill='#CECCC0')
-        text(78, top+28, '平和島', 36)
+        text(78, top+28, item['venue'], 36)
         text(76, top+83, f'{item["race"]}R', 69)
         text(79, top+170, '3連単', 29)
         text(79, top+214, date_label, 19)
@@ -103,9 +106,10 @@ def render_row(row, preview=False):
 def freeze(row):
     raw = render_row(row)
     digest = hashlib.sha256(raw).hexdigest()
+    scope = row['date'] if row['stadium']=='04' else f'{row["date"]}/{row["stadium"]}'
     return {'format': 'ticket-v1', 'image_sha256': digest,
             'image_data': base64.b64encode(raw).decode('ascii'),
-            'image_url': f'{ORIGIN}/api/threads_ticket/{row["date"]}/{row["race"]}/{digest}.png'}
+            'image_url': f'{ORIGIN}/api/threads_ticket/{scope}/{row["race"]}/{digest}.png'}
 
 
 def register_route(app, store_factory):
@@ -113,12 +117,16 @@ def register_route(app, store_factory):
     from flask import abort, Response
 
     @app.get('/api/threads_ticket/<date>/<int:race>/<digest>.png')
-    def threads_ticket_image(date, race, digest):
-        if (not re.fullmatch(r'\d{8}', date) or not 1<=race<=12
+    def legacy_threads_ticket_image(date, race, digest):
+        return threads_ticket_image(date, '04', race, digest)
+
+    @app.get('/api/threads_ticket/<date>/<stadium>/<int:race>/<digest>.png')
+    def threads_ticket_image(date, stadium, race, digest):
+        if (stadium not in STADIUMS or not re.fullmatch(r'\d{8}', date) or not 1<=race<=12
                 or not re.fullmatch(r'[0-9a-f]{64}', digest)):
             abort(404)
         try:
-            entry = store_factory().read()['posts'].get(f'auto:{date}:04:{race:02d}') or {}
+            entry = store_factory().read()['posts'].get(f'auto:{date}:{stadium}:{race:02d}') or {}
         except Exception:
             abort(503)
         if entry.get('format') != 'ticket-v1' or entry.get('image_sha256') != digest:
