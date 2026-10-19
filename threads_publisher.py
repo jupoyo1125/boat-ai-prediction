@@ -1,4 +1,4 @@
-"""Publish frozen, exhibition-backed forecasts for one configured venue.
+"""Publish frozen, exhibition-backed forecasts for configured venues.
 
 Disabled by default. Supports Buffer or the official Threads API with separate
 server credentials; ChatGPT's Metricool connection cannot be reused here.
@@ -62,6 +62,21 @@ class Config:
     until_date: str = ''
     line_promotion: LinePromotion | None = None
     stadium: str = STADIUM
+    stadiums: tuple[str, ...] = ()
+    post_format: str = 'auto'
+
+    @property
+    def target_stadiums(self):
+        return self.stadiums or (self.stadium,)
+
+    @property
+    def output_format(self):
+        if self.post_format == 'compact_text':
+            return 'compact_text'
+        return 'three_lines_ticket_image' if self.provider == 'buffer' else 'text'
+
+    def owns(self, key):
+        return key.startswith(tuple(f'auto:{self.date}:{s}:' for s in self.target_stadiums))
 
 
 def valid_date(value):
@@ -110,6 +125,23 @@ def configuration(now=None):
         stadium = os.getenv('BOAT_THREADS_STADIUM', STADIUM).strip().zfill(2)
         if stadium not in STADIUMS:
             return None
+        stadiums = (stadium,)
+        selected = os.getenv('BOAT_THREADS_STADIUMS', '').strip()
+        selected_date = os.getenv('BOAT_THREADS_STADIUMS_DATE', '').strip()
+        if selected_date:
+            valid_date(selected_date)
+            if not selected:
+                return None
+        if selected:
+            targets = tuple(value.strip().zfill(2) for value in selected.split(','))
+            if any(s not in STADIUMS for s in targets) or len(set(targets)) != len(targets):
+                return None
+            if not selected_date or selected_date == date:
+                stadiums = targets
+                stadium = targets[0]
+        post_format = os.getenv('BOAT_THREADS_POST_FORMAT', 'auto').strip()
+        if post_format not in ('auto', 'compact_text'):
+            return None
         promotion = line_promotion_configuration()
     except (TypeError, ValueError):
         return None
@@ -119,13 +151,13 @@ def configuration(now=None):
         channel = os.getenv('BOAT_BUFFER_CHANNEL_ID', '').strip()
         if token and channel and len(channel) <= 256:
             return Config(date, first, token, provider, channel, mode, start_date, until_date,
-                          promotion, stadium)
+                          promotion, stadium, stadiums, post_format)
         return None
     if provider != 'threads':
         return None  # Never fall back to a different account or provider.
     token = os.getenv('THREADS_ACCESS_TOKEN', '').strip()
     return Config(date, first, token, provider, '', mode, start_date, until_date,
-                  promotion, stadium) if token else None
+                  promotion, stadium, stadiums, post_format) if token else None
 
 
 def scope_active(config, now):
@@ -248,8 +280,8 @@ def candidate(row, config, now):
     try:
         race = int(row.get('race', 0))
         if (not scope_active(config, now) or row.get('date') != config.date
-                or row.get('stadium') != config.stadium or not config.first_race <= race <= 12
-                or row.get('id') != f'auto:{config.date}:{config.stadium}:{race:02d}'
+                or row.get('stadium') not in config.target_stadiums or not config.first_race <= race <= 12
+                or row.get('id') != f'auto:{config.date}:{row["stadium"]}:{race:02d}'
                 or row.get('prediction_origin') != 'automatic' or row.get('settled')
                 or row.get('actual_combo') or row.get('learned')):
             return None
@@ -260,17 +292,38 @@ def candidate(row, config, now):
             return None
         if deadline.strftime('%Y%m%d') != config.date or not complete_exhibition(row['prediction']):
             return None
+        # A protected LINE forecast must not become visible through a format switch.
+        if (config.post_format == 'compact_text' and config.line_promotion
+                and config.line_promotion.matches(row)):
+            return None
+        compact = config.post_format == 'compact_text'
         entry = {'key': row['id'], 'deadline': deadline.isoformat(),
-                'text': caption(row, config.line_promotion),
+                'text': compact_caption(row) if compact else caption(row, config.line_promotion),
                 'saved_at': row['prediction_saved_at'], 'state': 'queued', 'attempts': 0,
                 'provider': config.provider}
-        if (config.provider == 'buffer'
+        if compact:
+            entry['format'] = 'compact-text-v1'
+        elif (config.provider == 'buffer'
                 and not (config.line_promotion and config.line_promotion.matches(row))):
             from ticket_image import freeze
             entry.update(freeze(row), text=ticket_caption(row))
         return entry
     except (KeyError, ValueError, TypeError, OverflowError):
         return None
+
+
+def compact_caption(row):
+    """Only the saved main/second/hole selections and the two recorded times."""
+    original = caption(row)  # Reuse saved-pick/category and name validation.
+    picks = []
+    for prefix, label in (('本命', '本命'), ('相手軸', '軸'), ('穴', '穴')):
+        line = next(line for line in original.splitlines() if line.startswith(prefix))
+        picks.append(f'{label}：{line[len(prefix):].split("（", 1)[0]}')
+    date = row['date']
+    return (f'【{int(date[4:6])}/{int(date[6:8])} {STADIUMS[row["stadium"]]}{row["race"]}R】\n\n'
+            + '\n'.join(picks) + '\n\n'
+            f'{timestamp(row["prediction_saved_at"]):%H:%M}保存／'
+            f'締切{timestamp(row["scheduled_deadline"]):%H:%M}')
 
 
 def ticket_caption(row):
@@ -337,13 +390,15 @@ class PostStore:
         def change(state):
             entries = sorted(state['posts'].values(), key=lambda p: p['deadline'])
             for entry in entries:
-                if not entry['key'].startswith(f'auto:{config.date}:{config.stadium}:'):
+                if not config.owns(entry['key']):
                     continue
                 race = int(entry['key'].rsplit(':', 1)[1])
                 if not config.first_race <= race <= 12:
                     continue
                 if entry.get('provider', 'threads') != config.provider:
                     continue
+                if config.post_format == 'compact_text' and entry.get('format') != 'compact-text-v1':
+                    continue  # Never send a previously prepared image under text-only settings.
                 if entry['state'] in ('publishing', 'withdrawing'):
                     if now - timestamp(entry['claimed_at']) > LEASE:
                         entry.update(state='uncertain', error='公開結果の確認が必要です。自動再投稿しません。')
@@ -368,7 +423,7 @@ class PostStore:
         def change(state):
             for entry in sorted(state['posts'].values(), key=lambda p: p['deadline']):
                 if (entry['state'] != 'submitted' or entry.get('provider') != 'buffer'
-                        or not entry['key'].startswith(f'auto:{config.date}:{config.stadium}:')
+                        or not config.owns(entry['key'])
                         or int(entry['key'].rsplit(':', 1)[1]) < config.first_race):
                     continue
                 if entry.get('next_check_at') and now < timestamp(entry['next_check_at']):
@@ -649,10 +704,13 @@ def public_status():
              'expired' if config and scope_finished(config, now) else 'disabled')
     result = {'ok': True, 'enabled': enabled, 'date': config.date if config else None,
               'stadium': config.stadium if config else os.getenv('BOAT_THREADS_STADIUM', STADIUM),
-              'venue': STADIUMS.get(config.stadium) if config else None,
+              'venue': '・'.join(STADIUMS[s] for s in config.target_stadiums) if config else None,
+              'stadiums': list(config.target_stadiums) if config else [],
+              'venues': [STADIUMS[s] for s in config.target_stadiums] if config else [],
               'username': USERNAME,
               'provider': config.provider if config else os.getenv('BOAT_THREADS_PROVIDER', 'threads'),
-              'post_format': 'three_lines_ticket_image' if config and config.provider=='buffer' else 'text',
+              'post_format': config.output_format if config else None,
+              'with_images': bool(config and config.output_format == 'three_lines_ticket_image'),
               'from_race': config.first_race if config else None,
               'mode': config.mode if config else os.getenv('BOAT_THREADS_MODE', 'date'),
               'armed': armed, 'phase': phase,
@@ -678,7 +736,7 @@ def public_status():
                            ('key', 'provider', 'format', 'state', 'post_id', 'permalink', 'published_at', 'error')
                            if k in entry}
                            for entry in state['posts'].values()
-                           if entry['key'].startswith(f'auto:{config.date}:{config.stadium}:')]
+                           if config.owns(entry['key'])]
     except Exception:
         result.update(ok=False, enabled=False, armed=False, phase='error',
                       message='投稿記録の保存先に接続できません。')
