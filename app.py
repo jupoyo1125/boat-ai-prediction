@@ -1286,31 +1286,57 @@ def api_performance():
 @app.get('/api/saved_prediction')
 def api_saved_prediction():
     date = str(request.args.get('date','')).replace('/','').replace('-','')
-    stadium = str(request.args.get('stadium',''))
-    race = int(request.args.get('race','1'))
+    stadium = str(request.args.get('stadium','')).zfill(2)
+    try:
+        if not re.fullmatch(r'\d{8}', date):
+            raise ValueError()
+        datetime.strptime(date, '%Y%m%d')
+        race = int(request.args.get('race','1'))
+        if stadium not in STADIUMS or not 1 <= race <= 12:
+            raise ValueError()
+    except (TypeError, ValueError):
+        response = jsonify({'ok': False, 'code': 'invalid_race',
+                            'error': '日付・開催場・レースを確認してください。'})
+        response.status_code = 400
+    else:
+        try:
+            row = load_saved_prediction(date, stadium, race)
+        except Exception:
+            app.logger.exception('Saved prediction lookup failed date=%s stadium=%s race=%s',
+                                 date, stadium, race)
+            response = jsonify({'ok': False, 'code': 'prediction_unavailable',
+                                'error': '保存済み予想を取得できませんでした。再読み込みしてください。'})
+            response.status_code = 503
+            response.headers['Retry-After'] = '5'
+        else:
+            if row is None:
+                response = jsonify({'ok': False, 'code': 'prediction_missing',
+                                    'error': '保存済みAI予想がありません'})
+                response.status_code = 404
+            else:
+                response = jsonify({'ok': True, 'record': row, 'bets': row.get('bets') or []})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
-    rows = load_ledger()
 
-    candidates = [
-        r for r in rows
-        if str(r.get('date','')).replace('/','').replace('-','') == date
-        and str(r.get('stadium','')) == stadium
-        and int(r.get('race',0) or 0) == race
-    ]
+def load_saved_prediction(date, stadium, race):
+    """Return one frozen forecast without transferring the entire ledger."""
+    if _db_enabled():
+        with _db_connect() as connection:
+            result = connection.execute('''
+                SELECT record FROM performance_ledger
+                WHERE replace(replace(record->>'date', '/', ''), '-', '') = %s
+                  AND record->>'stadium' IN (%s, %s)
+                  AND ltrim(record->>'race', '0') = %s
+                ORDER BY id DESC LIMIT 1
+            ''', (date, stadium, str(int(stadium)), str(race))).fetchone()
+        if result is None:
+            return None
+        return json.loads(result[0]) if isinstance(result[0], str) else result[0]
 
-    if not candidates:
-        return jsonify({
-            'ok': False,
-            'error': '保存済みAI予想がありません'
-        }), 404
-
-    row = candidates[-1]
-
-    return jsonify({
-        'ok': True,
-        'record': row,
-        'bets': row.get('bets') or []
-    })
+    # Local development retains the existing file-backed ledger behavior.
+    candidates = [row for row in load_ledger() if race_key(row) == (date, stadium, race)]
+    return candidates[-1] if candidates else None
 
 def performance_record(data):
     inv = float(data.get('investment', 0) or 0)

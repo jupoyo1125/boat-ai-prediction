@@ -158,6 +158,42 @@ async function run() {
   assert.match(empty.elements.get('reason').textContent,/保存されると/);
   console.log('PASS: A race without a saved forecast clears the previous race and waits for exhibition.');
 
+  let storageUnavailable=true;
+  const retry=context(url=>url.startsWith('/api/saved_prediction?') && storageUnavailable ?
+    response({ok:false,error:'保存先に接続できません。'},503) : undefined);
+  await retry.run('loadSelectedSavedPrediction()');
+  assert.match(retry.elements.get('reason').textContent,/取得できませんでした/);
+  assert.doesNotMatch(retry.elements.get('reason').textContent,/保存されると/);
+  assert.equal(retry.elements.get('savedPredictionRetry').hidden,false);
+  storageUnavailable=false;
+  await retry.run('loadSelectedSavedPrediction()');
+  assert.equal(retry.elements.get('savedPredictionRetry').hidden,true);
+  assert.match(retry.elements.get('betsGachi').innerHTML,/1-2-3/);
+  assert.ok(retry.calls.every(call=>!call.options?.method));
+  console.log('PASS: A storage error offers a read-only retry and recovers without misreporting an absent forecast.');
+
+  let reportedPredicted=12;
+  let reportedPhase='watching';
+  const visible=context(url=>url==='/api/automation' ? response({ok:true,enabled:true,
+    date:'20261008',phase:reportedPhase,predicted:reportedPredicted,settled:3,pending:9,
+    last_checked_at:new Date().toISOString()}) : undefined);
+  await visible.run('loadAutomationStatus()');
+  assert.ok(visible.calls.some(call=>call.url.startsWith('/api/saved_prediction?')));
+  assert.ok(visible.calls.every(call=>!['/api/model','/api/historical'].includes(call.url) && !call.url.startsWith('/api/performance')));
+  visible.calls.length=0;reportedPhase='checking';
+  await visible.run('loadAutomationStatus()');
+  assert.deepEqual(visible.calls.map(call=>call.url),['/api/automation']);
+  visible.run("activePage='performance'");reportedPredicted++;
+  await visible.run('loadAutomationStatus()');
+  assert.ok(visible.calls.some(call=>call.url.startsWith('/api/performance')));
+  assert.ok(visible.calls.every(call=>call.url!=='/api/model'));
+  visible.calls.length=0;
+  visible.run("activePage='learning'");reportedPredicted++;
+  await visible.run('loadAutomationStatus()');
+  assert.ok(visible.calls.some(call=>call.url==='/api/model'));
+  assert.ok(visible.calls.every(call=>!call.url.startsWith('/api/performance')));
+  console.log('PASS: Automatic polling refreshes only the visible page and phase changes do not reload hidden full-ledger totals.');
+
   const manual=context(url=>url.startsWith('/api/saved_prediction?') ? response({ok:true,record:{combo:'123',bets:prediction.bets,learned:false}}) : undefined);
   await manual.run('loadSelectedSavedPrediction()');
   assert.equal(manual.elements.get('settleBtn').disabled,false);
