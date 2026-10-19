@@ -206,7 +206,9 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 </select>
   <div id="raceButtons" class="race-buttons" role="group" aria-label="レース番号"></div>
 <p class="race-results-note" id="raceStatusNote" role="status">結果の確定状況を確認しています。</p>
-  <div class="status" id="reason">開催場とレースを選ぶと、保存済みの予想を表示します。</div><section class="panel"><div class="metrics">
+  <div class="status" id="reason" role="status">開催場とレースを選ぶと、保存済みの予想を表示します。</div>
+  <button type="button" class="secondary" id="savedPredictionRetry" hidden onclick="loadSelectedSavedPrediction()">予想を再読み込み</button>
+  <section class="panel"><div class="metrics">
 <div class="metric"><small>本命</small><b id="main">-</b></div><div class="metric"><small>対抗</small><b id="second">-</b></div><div class="metric"><small>穴</small><b id="hole">-</b></div><div class="metric"><small>想定</small><b id="type">-</b></div>
 </div></section>
   <details class="manual-actions"><summary>手動で予想・結果を再確認</summary><div class="manual-controls"><label for="fixed">1着の固定<select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select></label><input id="investment" type="hidden" value="100"/><button disabled="" id="analyzeBtn" onclick="analyze()">AI予想</button><button class="secondary" disabled="" id="settleBtn" onclick="settlePrediction()">結果取得・学習</button></div></details>
@@ -491,6 +493,7 @@ let manualAnalysisKey='';
 let savedPredictionSequence=0;
 let savedPredictionRequest=null;
 let lastAutomaticSummary='';
+let activePage='races';
 let selectedSavedKey='';
 let scheduleSequence=0;
 let scheduleRequestController=null;
@@ -561,6 +564,7 @@ const VENUE_NAMES=['桐生','戸田','江戸川','平和島','多摩川','浜名
 let listedVenues=[];
 function showPage(view){
   if(!['races','performance','learning'].includes(view)) view='races';
+  activePage=view;
   document.querySelectorAll('[data-page]').forEach(page=>{page.hidden=page.getAttribute('data-page')!==view;});
   document.querySelectorAll('[data-nav]').forEach(link=>{
     if(link.getAttribute('data-nav')===view) link.setAttribute('aria-current','page');
@@ -569,6 +573,12 @@ function showPage(view){
 }
 function showPageFromHash(){
   showPage((window.location?.hash||'#races').slice(1));
+  if(activePage==='races') loadSelectedSavedPrediction();
+  if(activePage==='performance') loadPerformanceStatus();
+  if(activePage==='learning'){
+    loadLearningStatus();
+    loadHistoricalStatus();
+  }
   window.scrollTo?.({top:0,behavior:'auto'});
 }
 function showBetCategory(category){
@@ -1078,13 +1088,14 @@ async function loadAutomationStatus(){
       document.getElementById('autoPhase').textContent='確認が遅れています';
       document.getElementById('autoStatus').textContent='自動処理の定期起動を確認してください。締切を過ぎたレースは実績に加えません。';
     }
-    const signature=[status.date,status.phase,status.predicted,status.settled].join(':');
-    if(signature!==lastAutomaticSummary){
-      lastAutomaticSummary=signature;
-      await Promise.all([loadPerformanceStatus(),loadLearningStatus(),loadSelectedSavedPrediction()]);
-    }else if(!lastPrediction){
+    const signature=[status.date,status.predicted,status.settled].join(':');
+    const changed=signature!==lastAutomaticSummary;
+    lastAutomaticSummary=signature;
+    if(activePage==='races' && (changed || !lastPrediction)){
       await loadSelectedSavedPrediction();
     }
+    if(changed && activePage==='performance') await loadPerformanceStatus();
+    if(changed && activePage==='learning') await loadLearningStatus();
   }catch(error){
     document.getElementById('autoPhase').textContent='確認できません';
     document.getElementById('autoStatus').textContent='通信状態を確認し、時間をおいて再読み込みしてください。';
@@ -1106,6 +1117,7 @@ async function loadSelectedSavedPrediction(){
   const pending={key,controller:new AbortController()};
   savedPredictionRequest=pending;
   const sequence=++savedPredictionSequence;
+  document.getElementById('savedPredictionRetry').hidden=true;
   if(key!==selectedSavedKey){
     selectedSavedKey=key;
     lastPrediction=null;
@@ -1123,9 +1135,12 @@ async function loadSelectedSavedPrediction(){
     const {response,data}=await fetchPredictionJson(
       '/api/saved_prediction?'+new URLSearchParams(params),{},15000,pending.controller);
     if(sequence!==savedPredictionSequence || manualAnalysisRunning) return;
-    if(!response.ok || !data.ok){
+    if(response.status===404){
       if(!lastPrediction) document.getElementById('reason').textContent='展示後の自動予想が保存されると、ここに表示されます。';
       return;
+    }
+    if(!response.ok || !data.ok || !data.record){
+      throw new Error(data.error||'保存済み予想を取得できませんでした。');
     }
     const row=data.record;
     if(row.prediction_origin!=='automatic' || !row.prediction){
@@ -1147,7 +1162,10 @@ async function loadSelectedSavedPrediction(){
       ? `自動予想 ${savedAt}保存｜結果 ${String(row.actual_combo).split('').join('-')}｜照合・学習・実績反映済み`
       : `展示後の自動予想を${savedAt}に保存しました。結果確定後に自動で照合・学習します。`;
   }catch(error){
-    if(sequence===savedPredictionSequence && !lastPrediction) document.getElementById('reason').textContent='保存済み予想を取得できませんでした。次回再確認します。';
+    if(sequence===savedPredictionSequence){
+      document.getElementById('savedPredictionRetry').hidden=false;
+      if(!lastPrediction) document.getElementById('reason').textContent='保存済み予想を取得できませんでした。「予想を再読み込み」で再確認できます。';
+    }
   }finally{
     if(savedPredictionRequest===pending) savedPredictionRequest=null;
   }
@@ -1631,17 +1649,18 @@ showPageFromHash();
 window.addEventListener('hashchange',showPageFromHash);
 loadSchedule();
 renderRaceButtons();
-loadLearningStatus();
-loadPerformanceStatus();
 loadAutomationStatus();
 setInterval(()=>{
   if(!document.hidden) loadAutomationStatus();
 },15000);
 setInterval(()=>{
-  if(!document.hidden) loadHistoricalStatus();
+  if(!document.hidden && activePage==='learning') loadHistoricalStatus();
 },30000);
 setInterval(()=>{
-  if(!document.hidden){loadPerformanceStatus();loadRaceStatus();}
+  if(!document.hidden){
+    if(activePage==='performance') loadPerformanceStatus();
+    if(activePage==='races') loadRaceStatus();
+  }
 },60000);
 
 </script>

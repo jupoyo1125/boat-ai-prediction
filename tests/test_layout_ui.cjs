@@ -41,7 +41,10 @@ const ctx=vm.createContext({Date,URLSearchParams,AbortController,console,
  async fetch(url,options){calls.push({url,options});
   if(url.startsWith('/api/schedule?'))return {ok:true,json:async()=>({ok:true,date:new URLSearchParams(url.split('?')[1]).get('date'),venues:[{stadium:'04',venue:'平和島'},{stadium:'01',venue:'桐生'}]})};
   if(url.startsWith('/api/race_status?')){const params=new URLSearchParams(url.split('?')[1]);return {ok:true,json:async()=>({ok:true,date:params.get('date'),stadium:params.get('stadium'),settled_races:[],cancelled_races:[]})};}
-  if(url.startsWith('/api/saved_prediction?'))return {ok:false,json:async()=>({ok:false})};
+  if(url.startsWith('/api/saved_prediction?'))return {ok:false,status:404,json:async()=>({ok:false})};
+  if(url.startsWith('/api/performance?')){const date=new URLSearchParams(url.split('?')[1]).get('date');return {ok:true,json:async()=>({ok:true,category_stats:{},automatic_category_stats:{},daily:{date,stadium:'',category_stats:{},automatic_category_stats:{}}})};}
+  if(url==='/api/model')return {ok:true,json:async()=>({ok:true,model:{weights:{},samples:0,hits:0}})};
+  if(url==='/api/historical')return {ok:true,json:async()=>({ok:true,exists:false})};
   throw Error('Unexpected request '+url);
  }});
 vm.runInContext(definitions,ctx);const run=code=>vm.runInContext(code,ctx);
@@ -79,5 +82,22 @@ async function main(){
  }
  assert.doesNotMatch(html,/grid-template-columns:26px repeat\(3,minmax\(0,1fr\)\)/);
  console.log('PASS: Every data binding has a unique ID and all three compact bet tables expose only combinations and odds.');
+ calls.length=0;
+ run("window.location.hash='#races';showPageFromHash()");
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.ok(calls.some(c=>c.url.startsWith('/api/saved_prediction?')));
+ assert.ok(calls.every(c=>!c.url.startsWith('/api/performance')&&c.url!=='/api/model'&&c.url!=='/api/historical'));
+ calls.length=0;
+ run("window.location.hash='#performance';showPageFromHash()");
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(nodes.get('pagePerformance').hidden,false);
+ assert.ok(calls.some(c=>c.url.startsWith('/api/performance?')));
+ assert.ok(calls.every(c=>c.url!=='/api/model'&&c.url!=='/api/historical'));
+ calls.length=0;
+ run("window.location.hash='#learning';showPageFromHash()");
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(nodes.get('pageLearning').hidden,false);
+ assert.deepEqual(calls.map(c=>c.url).sort(),['/api/historical','/api/model']);
+ console.log('PASS: Actual tab navigation loads only that tab, while the race tab starts no hidden history or performance requests.');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
