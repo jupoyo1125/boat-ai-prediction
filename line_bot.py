@@ -20,7 +20,7 @@ import unicodedata
 import requests
 from flask import jsonify, request
 
-from line_prediction import FIXED_FIRST_RULE, fixed_first_for_race
+from line_prediction import condition_for_race
 
 from state_store import (
     database_url, require_storage_writable, state_connection,
@@ -119,11 +119,13 @@ def designated_race(venues, now):
     target = {'id': f'auto:{date}:{stadium}:{race:02d}', 'date': date,
               'stadium': stadium, 'race': race, 'venue': venues[stadium]}
     try:
-        first = fixed_first_for_race(date, stadium, race)
+        condition = condition_for_race(date, stadium, race)
     except ValueError:
         return None
-    if first is not None:
-        target['fixed_first'] = first
+    if condition is not None:
+        target['fixed_first'] = condition['first']
+        if condition.get('partners'):
+            target['partners'] = condition['partners']
     return target
 
 
@@ -160,15 +162,19 @@ def frozen_sample(row, venues, now):
                 or saved.strftime('%Y%m%d') != date
                 or deadline.strftime('%Y%m%d') != date):
             return None
-        first = fixed_first_for_race(date, stadium, race)
+        condition = condition_for_race(date, stadium, race)
+        first = condition['first'] if condition is not None else None
+        partners = condition.get('partners', []) if condition is not None else []
         bets = row.get('bets')
         if first is not None:
             prediction = row.get('prediction')
             if not isinstance(prediction, dict):
                 return None
             special = prediction.get('line_forecast')
-            if (not isinstance(special, dict) or special.get('rule') != FIXED_FIRST_RULE
-                    or type(special.get('first')) is not int or special['first'] != first):
+            if (not isinstance(special, dict) or special.get('rule') != condition['rule']
+                    or type(special.get('first')) is not int or special['first'] != first
+                    or special.get('partners', []) != partners
+                    or any(type(boat) is not int for boat in special.get('partners', []))):
                 return None
             bets = special.get('bets')
         if not isinstance(bets, list) or not bets:
@@ -179,7 +185,8 @@ def frozen_sample(row, venues, now):
             if (category not in groups or not isinstance(combo, str)
                     or not re.fullmatch(r'[1-6]-[1-6]-[1-6]', combo)
                     or len(set(combo.split('-'))) != 3 or combo in groups[category]
-                    or first is not None and combo[0] != str(first)):
+                    or first is not None and combo[0] != str(first)
+                    or partners and not set(partners).intersection(map(int, combo.split('-')[1:]))):
                 return None
             groups[category].append(combo)
         if any(len(groups[category]) > limit for category, _, limit in LABELS):
@@ -194,6 +201,8 @@ def frozen_sample(row, venues, now):
             if set(groups['gachi']) & set(groups['roman']) or not set(groups['oni']) <= set(groups['gachi']):
                 return None
             sample['fixed_first'] = first
+            if partners:
+                sample['partners'] = partners
         return sample
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
@@ -210,6 +219,9 @@ def format_sample(sample):
     if sample.get('fixed_first'):
         lines[1:2] = ['独自サイトで保存した展示後予想をもとに作成しています。',
                       f'指定条件：{sample["fixed_first"]}号艇を1着固定']
+        if sample.get('partners'):
+            partners = '・'.join(map(str, sample['partners']))
+            lines.insert(3, f'相手軸：{partners}号艇（いずれかを2着または3着に含む）')
     for category, label, _ in LABELS:
         combos = sample['groups'][category]
         lines.extend([f'{label}｜{len(combos)}点',
