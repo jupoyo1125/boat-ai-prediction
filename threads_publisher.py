@@ -51,6 +51,23 @@ class LinePromotion:
 
 
 @dataclass(frozen=True)
+class MainCondition:
+    date: str
+    stadium: str
+    excluded_main: tuple[int, ...]
+
+    def matches(self, row):
+        return row.get('date') == self.date and row.get('stadium') == self.stadium
+
+    def owns(self, key):
+        return key.startswith(f'auto:{self.date}:{self.stadium}:')
+
+    def snapshot(self):
+        return {'rule': 'excluded-main-v1', 'date': self.date, 'stadium': self.stadium,
+                'excluded_main': list(self.excluded_main)}
+
+
+@dataclass(frozen=True)
 class Config:
     date: str
     first_race: int
@@ -64,6 +81,7 @@ class Config:
     stadium: str = STADIUM
     stadiums: tuple[str, ...] = ()
     post_format: str = 'auto'
+    main_condition: MainCondition | None = None
 
     @property
     def target_stadiums(self):
@@ -84,6 +102,22 @@ def valid_date(value):
         raise ValueError('invalid date')
     datetime.strptime(value, '%Y%m%d')
     return value
+
+
+def main_condition_configuration():
+    value = os.getenv('BOAT_THREADS_EXCLUDE_MAIN', '').strip()
+    if not value:
+        return None
+    match = re.fullmatch(r'(\d{8}):(\d{2}):([1-6](?:,[1-6])*)', value)
+    if not match:
+        raise ValueError('invalid main selection condition')
+    date, stadium, raw_excluded = match.groups()
+    valid_date(date)
+    excluded = tuple(sorted(int(n) for n in raw_excluded.split(',')))
+    if (stadium not in STADIUMS or len(set(excluded)) != len(excluded)
+            or len(excluded) == 6):
+        raise ValueError('invalid main selection scope')
+    return MainCondition(date, stadium, excluded)
 
 
 def line_promotion_configuration():
@@ -142,6 +176,10 @@ def configuration(now=None):
         post_format = os.getenv('BOAT_THREADS_POST_FORMAT', 'auto').strip()
         if post_format not in ('auto', 'compact_text'):
             return None
+        main_condition = main_condition_configuration()
+        if (main_condition and main_condition.date == date
+                and (post_format != 'compact_text' or main_condition.stadium not in stadiums)):
+            return None
         promotion = line_promotion_configuration()
     except (TypeError, ValueError):
         return None
@@ -151,13 +189,13 @@ def configuration(now=None):
         channel = os.getenv('BOAT_BUFFER_CHANNEL_ID', '').strip()
         if token and channel and len(channel) <= 256:
             return Config(date, first, token, provider, channel, mode, start_date, until_date,
-                          promotion, stadium, stadiums, post_format)
+                          promotion, stadium, stadiums, post_format, main_condition)
         return None
     if provider != 'threads':
         return None  # Never fall back to a different account or provider.
     token = os.getenv('THREADS_ACCESS_TOKEN', '').strip()
     return Config(date, first, token, provider, '', mode, start_date, until_date,
-                  promotion, stadium, stadiums, post_format) if token else None
+                  promotion, stadium, stadiums, post_format, main_condition) if token else None
 
 
 def scope_active(config, now):
@@ -297,10 +335,17 @@ def candidate(row, config, now):
                 and config.line_promotion.matches(row)):
             return None
         compact = config.post_format == 'compact_text'
+        condition = (config.main_condition if config.main_condition
+                     and config.main_condition.matches(row) else None)
+        posting_row = conditioned_forecast(row, condition) if condition else row
         entry = {'key': row['id'], 'deadline': deadline.isoformat(),
-                'text': compact_caption(row) if compact else caption(row, config.line_promotion),
+                'text': compact_caption(posting_row) if compact else caption(row, config.line_promotion),
                 'saved_at': row['prediction_saved_at'], 'state': 'queued', 'attempts': 0,
                 'provider': config.provider}
+        if condition:
+            entry.update(main_condition=condition.snapshot(),
+                         selected_picks={key: posting_row['prediction'][key]
+                                         for key in ('main', 'second', 'hole')})
         if compact:
             entry['format'] = 'compact-text-v1'
         elif (config.provider == 'buffer'
@@ -310,6 +355,29 @@ def candidate(row, config, now):
         return entry
     except (KeyError, ValueError, TypeError, OverflowError):
         return None
+
+
+def conditioned_forecast(row, condition):
+    """Select within the operator's scope using only frozen pre-race scores.
+
+    The site's ledger, bets, model inputs and performance records stay frozen.
+    The constrained SNS selection is frozen separately in the post's outbox.
+    """
+    prediction = row['prediction']
+    boats = prediction['boats']
+    if (len(boats) != 6 or {b.get('boat') for b in boats} != set(range(1, 7))
+            or any(type(b.get('boat')) is not int or isinstance(b.get('score'), bool)
+                   or not isinstance(b.get('score'), (int, float))
+                   or not math.isfinite(b['score']) for b in boats)):
+        raise ValueError('six saved evaluation scores are required')
+    ranking = sorted(boats, key=lambda b: (-b['score'], b['boat']))
+    eligible = [b['boat'] for b in ranking if b['boat'] not in condition.excluded_main]
+    if not eligible or not condition.matches(row):
+        raise ValueError('no eligible main selection in the requested scope')
+    main = eligible[0]
+    partners = [b['boat'] for b in ranking if b['boat'] != main]
+    return {**row, 'prediction': {**prediction, 'main': main,
+                                  'second': partners[0], 'hole': partners[1]}}
 
 
 def compact_caption(row):
@@ -399,6 +467,9 @@ class PostStore:
                     continue
                 if config.post_format == 'compact_text' and entry.get('format') != 'compact-text-v1':
                     continue  # Never send a previously prepared image under text-only settings.
+                if (config.main_condition and config.main_condition.owns(entry['key'])
+                        and entry.get('main_condition') != config.main_condition.snapshot()):
+                    continue  # Do not publish a draft prepared without the requested condition.
                 if entry['state'] in ('publishing', 'withdrawing'):
                     if now - timestamp(entry['claimed_at']) > LEASE:
                         entry.update(state='uncertain', error='公開結果の確認が必要です。自動再投稿しません。')
@@ -720,6 +791,11 @@ def public_status():
                             if config else None,
               'connection': connection_status(config) if config else
                             {'state': 'unchecked', 'checked_at': None}}
+    if config and config.main_condition:
+        condition = config.main_condition
+        result['main_condition'] = {**condition.snapshot(),
+                                   'active_today': condition.date == config.date
+                                                   and condition.stadium in config.target_stadiums}
     if config and config.line_promotion:
         promotion = config.line_promotion
         result['line_promotion'] = {'date': promotion.date, 'stadium': promotion.stadium,
