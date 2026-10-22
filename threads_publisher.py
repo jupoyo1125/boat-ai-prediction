@@ -357,6 +357,38 @@ def candidate(row, config, now):
         return None
 
 
+def withdrawal_candidate(config, date, stadium, race, deadline, before, now):
+    """Require an explicit withdrawal plus five complete exhibition records."""
+    if (not config or not scope_active(config, now) or date != config.date
+            or stadium not in config.target_stadiums or not config.first_race <= race <= 12
+            or deadline.strftime('%Y%m%d') != date or now >= deadline - MIN_LEAD):
+        return None
+    withdrawn = before.get('withdrawn_boats', [])
+    if (len(withdrawn) != 1 or type(withdrawn[0]) is not int
+            or withdrawn[0] not in range(1, 7)):
+        return None
+    active = set(range(1, 7)) - set(withdrawn)
+    for key, low, high in [('exhibition', 5, 9), ('exhibition_st', -1, 1)]:
+        values = before.get(key, {})
+        if set(values) != active or any(type(v) not in (float, int)
+                or not math.isfinite(v) or not low < v < high for v in values.values()):
+            return None
+    text = (f'【{int(date[4:6])}/{int(date[6:8])} {STADIUMS[stadium]}{race}R】\n\n'
+            f'{withdrawn[0]}号艇の欠場により5艇立てのため、今回は予想を見送ります。\n\n'
+            f'締切{deadline:%H:%M}')
+    return {'key': f'auto:{date}:{stadium}:{race:02d}', 'deadline': deadline.isoformat(),
+            'text': text, 'saved_at': now.isoformat(), 'state': 'queued', 'attempts': 0,
+            'provider': config.provider, 'format': 'compact-text-v1',
+            'notice': 'five-boat-withdrawal-v1', 'withdrawn_boats': withdrawn}
+
+
+def enqueue_withdrawal_notice(date, stadium, race, deadline, before, now):
+    entry = withdrawal_candidate(configuration(now), date, stadium, race, deadline, before, now)
+    if entry:
+        PostStore().enqueue([entry])
+        wake()
+
+
 def conditioned_forecast(row, condition):
     """Select within the operator's scope using only frozen pre-race scores.
 
