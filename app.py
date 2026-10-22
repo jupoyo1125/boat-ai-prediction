@@ -636,7 +636,7 @@ def value(cells, labels):
 def parse_before(html):
     soup = BeautifulSoup(unicodedata.normalize('NFKC', html), 'html.parser')
     text = soup.get_text(' ', strip=True)
-    out = {'wind':None,'wave':None,'air':None,'water':None,'exhibition':{},'exhibition_st':{},'entry_course':{}}
+    out = {'wind':None,'wave':None,'air':None,'water':None,'exhibition':{},'exhibition_st':{},'entry_course':{},'withdrawn_boats':[]}
     patterns = {
         'wind': r'風速\s*([0-9.]+)\s*m',
         'wave': r'波高\s*([0-9.]+)\s*cm',
@@ -653,6 +653,10 @@ def parse_before(html):
             continue
         b = boat_no(cells[0])
         if not b:
+            continue
+        if any(re.fullmatch(r'欠場|欠', cell) for cell in cells[1:]):
+            if b not in out['withdrawn_boats']:
+                out['withdrawn_boats'].append(b)
             continue
         ex = num(cells[4]) if len(cells) > 4 else None
         if ex is not None and 5 <= ex <= 9:
