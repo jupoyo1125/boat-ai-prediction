@@ -191,6 +191,11 @@ class AutoRunner:
                 try:
                     before = self.core.parse_before(self.core.get(
                         f'{self.core.BASE}beforeinfo?hd={date}&jcd={jcd}&rno={race}', timeout=15))
+                    if before.get('withdrawn_boats'):
+                        from threads_publisher import enqueue_withdrawal_notice
+                        enqueue_withdrawal_notice(date, jcd, race, deadline, before, self.clock())
+                        self.event(date, jcd, race, 'skipped_withdrawal', '欠場があるため予想を見送ります。')
+                        continue
                     if not exhibition_ready(before):
                         self.event(date, jcd, race, 'exhibition_waiting', '展示タイム・展示STの公表待ちです。')
                         continue
