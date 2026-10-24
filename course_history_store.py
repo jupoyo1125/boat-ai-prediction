@@ -132,11 +132,11 @@ class CourseHistory:
             if len(present) != len(wanted):
                 self.request(date)
                 raise CourseHistoryPending(len(present), len(wanted))
-            days = read_days(wanted)
-            if len(days) != len(wanted):
-                self.request(date)
-                raise CourseHistoryPending(len(days), len(wanted))
-            snapshot = aggregate_days(days, date)
+            # Read bounded batches so a full year never lives in memory twice.
+            def days():
+                for offset in range(0, len(wanted), 7):
+                    yield from read_days(wanted[offset:offset + 7])
+            snapshot = aggregate_days(days(), date)
             self.snapshots[date] = snapshot
             while len(self.snapshots) > 4:
                 self.snapshots.popitem(last=False)

@@ -56,8 +56,23 @@ def write_status(status):
     with state_connection() as connection:
         connection.execute('''INSERT INTO boat_automation_state (id, state, updated_at)
             VALUES (1, %s::jsonb, NOW()) ON CONFLICT (id) DO UPDATE
-            SET state = EXCLUDED.state, updated_at = NOW()''',
+            SET state = EXCLUDED.state || jsonb_build_object('race_events',
+                CASE WHEN boat_automation_state.state->>'date'=EXCLUDED.state->>'date'
+                THEN COALESCE(boat_automation_state.state->'race_events','{}'::jsonb)
+                ELSE '{}'::jsonb END), updated_at = NOW()''',
             (json.dumps(status, ensure_ascii=False),))
+        connection.commit()
+
+
+def write_events(events, date):
+    require_storage_writable()
+    ensure_status_table()
+    values = {f"{event['stadium']}:{event['race']}": event for event in events}
+    with state_connection() as connection:
+        connection.execute("""UPDATE boat_automation_state SET state=jsonb_set(state,
+            '{race_events}',COALESCE(state->'race_events','{}'::jsonb) || %s::jsonb),
+            updated_at=NOW() WHERE id=1 AND state->>'date'=%s""",
+            (json.dumps(values,ensure_ascii=False),date))
         connection.commit()
 
 
@@ -127,12 +142,29 @@ class AutoRunner:
         self.day = None
 
     def event(self, date, jcd, race, state, message=''):
+        key = f'{date}:{jcd}:{race}'
         with self.status_lock:
-            self.events[f'{date}:{jcd}:{race}'] = {
+            previous = self.events.get(key)
+            self.events[key] = {
                 'date': date, 'stadium': jcd, 'venue': self.core.STADIUMS.get(jcd, jcd),
                 'race': race, 'state': state, 'message': message,
                 'checked_at': self.clock().isoformat(timespec='seconds'),
             }
+
+        if not previous or previous['state'] != state or previous['message'] != message:
+            self.core.app.logger.info('Automatic race state date=%s stadium=%s race=%s state=%s',
+                                      date,jcd,race,state)
+
+    def flush_events(self, date, jcd):
+        if not configured():
+            return
+        with self.status_lock:
+            events = [event for event in self.events.values()
+                      if event['date'] == date and event['stadium'] == jcd]
+        try:
+            write_events(events, date)
+        except Exception:
+            self.core.app.logger.warning('Automatic event persistence failed date=%s stadium=%s', date,jcd)
 
     def deadlines(self, date, jcd):
         key = date, jcd
@@ -181,7 +213,10 @@ class AutoRunner:
                       and row.get('prediction_origin') == 'automatic'}
             for race, deadline in deadlines.items():
                 now = self.clock()
-                if race in frozen or race in results:
+                if race in frozen:
+                    continue
+                if race in results:
+                    self.event(date,jcd,race,'prediction_missing','結果確定までに保存された予想がありません。')
                     continue
                 if now >= deadline - timedelta(seconds=90):
                     self.event(date, jcd, race, 'skipped', '締切前の予想を保存できなかったため、実績から除外します。')
@@ -200,6 +235,7 @@ class AutoRunner:
                         self.event(date, jcd, race, 'exhibition_waiting', '展示タイム・展示STの公表待ちです。')
                         continue
                     detected = self.clock()
+                    self.event(date,jcd,race,'predicting','展示確認済み。締切前の予想を作成しています。')
                     prediction = self.core.predict_race(date, jcd, race, before=before)
                     if prediction.get('odds_count', 0) < 120:
                         self.event(date, jcd, race, 'retry', '3連単オッズがそろうまで再確認します。')
@@ -221,6 +257,8 @@ class AutoRunner:
         except Exception:
             self.core.app.logger.exception('Automatic venue check failed date=%s stadium=%s', date, jcd)
             self.event(date, jcd, 0, 'retry', '開催情報・結果を次回再確認します。')
+        finally:
+            self.flush_events(date,jcd)
 
     @strict_state_reads
     def process_backlog(self, date, jcd, rows):
@@ -241,7 +279,7 @@ class AutoRunner:
             self.persist({'date': date, 'phase': 'waiting', 'message': '次の開催時間を待っています。',
                           'last_checked_at': now.isoformat(timespec='seconds')})
             return
-        rows = self.core.load_ledger()
+        rows = self.core.load_automation_records(date)
         venues = self.core.get_active_stadiums(date)
         self.persist({'date': date, 'phase': 'checking', 'message': '展示データと確定結果を確認しています。',
                       'predicted': sum(row.get('prediction_origin') == 'automatic' and self.core.race_key(row)[0] == date for row in rows),
@@ -256,7 +294,7 @@ class AutoRunner:
             futures += [pool.submit(self.process_backlog, saved_date, jcd, rows) for saved_date, jcd in backlog]
             for future in futures:
                 future.result()
-        fresh = self.core.load_ledger()
+        fresh = self.core.load_automation_records(date)
         automatic = [row for row in fresh if row.get('prediction_origin') == 'automatic' and self.core.race_key(row)[0] == date]
         settled = sum(bool(row.get('learned')) for row in automatic)
         with self.status_lock:

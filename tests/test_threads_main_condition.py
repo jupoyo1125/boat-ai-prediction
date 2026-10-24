@@ -107,7 +107,7 @@ class MainConditionTests(unittest.TestCase):
 
     @mock.patch('automation.configured', return_value=True)
     def test_restart_sends_each_conditioned_forecast_once_without_attachments(self, configured):
-        core = mock.Mock(); core.load_ledger.return_value = [self.row(r) for r in range(1, 13)]
+        core = mock.Mock(); core.load_publication_records.side_effect = lambda *args: core.load_ledger(); core.load_ledger.return_value = [self.row(r) for r in range(1, 13)]
         store = MemoryStore(); client = mock.Mock()
         client.create.side_effect = [f'buffer-{r}' for r in range(1, 13)]
         client.publish.side_effect = lambda post, text: post

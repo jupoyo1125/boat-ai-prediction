@@ -336,6 +336,57 @@ def load_ledger():
         return []
 
 
+def load_race_records(date, stadium, race):
+    if not _db_enabled():
+        return [row for row in load_ledger() if race_key(row) == (date, stadium, race)]
+    with _db_connect() as connection:
+        rows = connection.execute("""SELECT record FROM performance_ledger
+            WHERE replace(replace(record->>'date', '/', ''), '-', '')=%s
+            AND record->>'stadium' IN (%s,%s) AND ltrim(record->>'race','0')=%s
+            ORDER BY id""", (date, stadium, str(int(stadium)), str(race))).fetchall()
+    return [json.loads(row[0]) if isinstance(row[0], str) else row[0] for row in rows]
+
+
+def save_race_record(row):
+    require_storage_writable()
+    if _db_enabled():
+        if not in_state_transaction():
+            raise RuntimeError('Race writes require the shared state transaction')
+        with _db_connect() as connection:
+            connection.execute(LEDGER_UPSERT_SQL,
+                               (json.dumps([{'id': row['id'], 'record': row}], ensure_ascii=False),))
+        return
+    rows = load_ledger()
+    rows = [item for item in rows if item.get('id') != row['id']]
+    rows.append(row)
+    save_ledger(rows)
+
+
+def load_publication_records(date, stadiums):
+    if not _db_enabled():
+        return load_ledger()
+    with _db_connect() as connection:
+        rows = connection.execute("""SELECT record FROM performance_ledger
+            WHERE record->>'prediction_origin'='automatic'
+            AND record->>'date'=%s AND record->>'stadium'=ANY(%s) ORDER BY id""",
+            (date,list(stadiums))).fetchall()
+    return [json.loads(row[0]) if isinstance(row[0], str) else row[0] for row in rows]
+
+
+def load_automation_records(date):
+    if not _db_enabled():
+        return load_ledger()
+    start = (datetime.strptime(date, '%Y%m%d') - timedelta(days=7)).strftime('%Y%m%d')
+    with _db_connect() as connection:
+        rows = connection.execute("""SELECT jsonb_build_object(
+            'id',id,'date',record->>'date','stadium',record->>'stadium',
+            'race',record->'race','prediction_origin',record->>'prediction_origin',
+            'learned',record->'learned') FROM performance_ledger
+            WHERE record->>'prediction_origin'='automatic'
+            AND record->>'date' BETWEEN %s AND %s ORDER BY id""", (start,date)).fetchall()
+    return [json.loads(row[0]) if isinstance(row[0], str) else row[0] for row in rows]
+
+
 def save_ledger(rows):
     require_storage_writable()
     rows = rows or []
@@ -1531,7 +1582,7 @@ def already_settled(row, race):
 def settle_saved_prediction(date, jcd, race, official_result=None):
     result_source = f'{BASE}raceresult?hd={date}&jcd={jcd}&rno={race}'
     try:
-        candidates = [row for row in load_ledger() if race_key(row) == (date, jcd, race)]
+        candidates = load_race_records(date, jcd, race)
         if not candidates:
             return {'ok': False, 'code': 'prediction_missing', 'source': result_source,
                     'error': '保存済みの予想がありません。同じ日付・開催場で先にAI予想を保存してください。'}, 404
@@ -1559,15 +1610,14 @@ def settle_saved_prediction(date, jcd, race, official_result=None):
 @state_atomic
 def apply_official_result(date, jcd, race, result, result_source):
     # Reload under the shared PostgreSQL lock, after external communication.
-    rows = load_ledger()
-    candidates = [row for row in rows if race_key(row) == (date, jcd, race)]
+    candidates = load_race_records(date, jcd, race)
     if not candidates:
         return {'ok': False, 'code': 'prediction_missing', 'error': '保存済みの予想がありません。'}, 404
     row = candidates[-1]
     if row.get('learned'):
         return already_settled(row, race)
     state, hit = settle_record(row, result, load_model())
-    save_ledger(rows)
+    save_race_record(row)
     return {'ok': True, 'status': 'settled', 'result': result, 'record': row,
             'learning_hit': bool(hit), 'model': state, 'source': result_source}, 200
 
@@ -2117,8 +2167,7 @@ def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at
     with atomic_state():
         if clock() >= deadline - timedelta(seconds=30):
             return None
-        rows = load_ledger()
-        existing = [row for row in rows if race_key(row) == (date, jcd, race)]
+        existing = load_race_records(date, jcd, race)
         if any(row.get('prediction_origin') == 'automatic' or row.get('settled') for row in existing):
             return None
         bets = normalize_category_bets(prediction.get('bets') or [])
@@ -2140,8 +2189,7 @@ def save_automatic_prediction(date, jcd, race, prediction, deadline, detected_at
             'learned': False, 'note': '展示後の自動AI予想・各買い目100円',
         }
         apply_category_accounting(row)
-        rows.append(row)
-        save_ledger(rows)
+        save_race_record(row)
         return row
 
 

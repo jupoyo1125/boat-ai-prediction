@@ -200,12 +200,13 @@ class VersionAndStoreTests(unittest.TestCase):
         days = [{'format_version': 1, 'date': d, 'counts': []} for d in dates]
         cache = store.CourseHistory()
         with mock.patch.object(store, 'available_days', side_effect=[set(dates[:-1]), set(dates)]), \
-             mock.patch.object(store, 'read_days', return_value=days) as read:
+             mock.patch.object(store, 'read_days', side_effect=lambda wanted: [day for day in days if day['date'] in wanted]) as read:
             with self.assertRaises(store.CourseHistoryPending):
                 cache.get('20261017')
             first = cache.get('20261017')
             self.assertIs(first, cache.get('20261017'))
-            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_count, 53)
+            self.assertTrue(all(len(call.args[0]) <= 7 for call in read.call_args_list))
 
     def test_ready_snapshot_does_not_read_a_full_year_on_worker_polls(self):
         cache = store.CourseHistory()
