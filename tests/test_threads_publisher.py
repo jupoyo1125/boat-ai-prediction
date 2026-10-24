@@ -58,6 +58,7 @@ class PublisherTests(unittest.TestCase):
         self.client.publish.return_value = '456'
         self.client.permalink.return_value = 'https://www.threads.com/@example/post/example'
         self.core = mock.Mock()
+        self.core.load_publication_records.side_effect = lambda *args: self.core.load_ledger()
         self.core.load_ledger.return_value = [self.row]
         patch = mock.patch('automation.configured', return_value=True)
         patch.start(); self.addCleanup(patch.stop)
@@ -267,6 +268,7 @@ class CurrentFeaturePublisherTests(unittest.TestCase):
     def test_current_format_publishes_only_once_without_mutating_saved_picks(self):
         original = copy.deepcopy(self.row)
         core, client, store = mock.Mock(), mock.Mock(), MemoryStore()
+        core.load_publication_records.side_effect = lambda *args: core.load_ledger()
         core.load_ledger.return_value = [self.row]
         client.create.return_value = 'current-container'
         client.publish.return_value = 'current-post'
@@ -342,6 +344,7 @@ class LinePromotionTests(unittest.TestCase):
         original = copy.deepcopy(self.row)
         store = MemoryStore()
         core = mock.Mock()
+        core.load_publication_records.side_effect = lambda *args: core.load_ledger()
         core.load_ledger.return_value = [self.row]
         client = mock.Mock()
         client.create.return_value = 'promotion-container'
@@ -494,6 +497,7 @@ class DailyPublisherTests(unittest.TestCase):
         self.assertEqual(self.client.verify_account.call_count, 2)
 
     def test_daily_worker_waits_then_publishes_each_days_races_once_without_restart(self):
+        self.core.load_publication_records.side_effect = lambda *args: self.core.load_ledger()
         self.core.load_ledger.return_value = [
             self.row(date, race) for date in ('20261015', '20261016', '20261017', '20261018')
             for race in (1, 12)]
@@ -525,6 +529,7 @@ class DailyPublisherTests(unittest.TestCase):
         self.now = datetime(2026, 10, 16, 10, 20, tzinfo=tp.JST)
         row = self.row('20261016', 1)
         row.update(stadium='05', id='auto:20261016:05:01')
+        self.core.load_publication_records.side_effect = lambda *args: self.core.load_ledger()
         self.core.load_ledger.return_value = [row, self.row('20261015', 1)]
         self.publisher().run_once()
         self.assertEqual(self.store.read()['posts'], {})
@@ -667,6 +672,7 @@ class BufferFlowTests(unittest.TestCase):
         self.client.publication.return_value = buffer_post('sending', ticket=True)
         self.client.permalink.side_effect = BufferClient.permalink
         self.core = mock.Mock()
+        self.core.load_publication_records.side_effect = lambda *args: self.core.load_ledger()
         self.core.load_ledger.return_value = [self.row]
         patch = mock.patch('automation.configured', return_value=True)
         patch.start(); self.addCleanup(patch.stop)

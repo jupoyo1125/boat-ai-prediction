@@ -654,7 +654,9 @@ class Publisher:
             return
         if self.config.provider == 'buffer':
             self.confirm_buffer()
-        entries = [entry for row in self.core.load_ledger()
+        reader = getattr(self.core, 'load_publication_records', None)
+        rows = reader(now.strftime('%Y%m%d'), self.config.target_stadiums) if reader else self.core.load_ledger()
+        entries = [entry for row in rows
                    if (entry := candidate(row, self.config, now))]
         self.store.enqueue(entries)
         while entry := self.store.claim(self.config, self.clock()):

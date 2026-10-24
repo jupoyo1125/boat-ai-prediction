@@ -107,7 +107,7 @@ class CompactMultiVenueTests(unittest.TestCase):
     def test_all_24_races_publish_once_without_attachments_and_confirm_after_restart(self, configured):
         rows = [self.row(s, r) for s in ('09', '12') for r in range(1, 13)]
         rows.append(self.row('18'))
-        core = mock.Mock(); core.load_ledger.return_value = rows
+        core = mock.Mock(); core.load_publication_records.side_effect = lambda *args: core.load_ledger(); core.load_ledger.return_value = rows
         store = MemoryStore(); client = mock.Mock()
         client.create.side_effect = [f'buffer-{n}' for n in range(24)]
         client.publish.side_effect = lambda post, text: post

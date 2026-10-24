@@ -92,18 +92,21 @@ def parse_course_archive(content, date):
 
 def aggregate_days(days, target_date):
     wanted = year_window(target_date)
-    by_date = {day['date']: day for day in days}
-    if set(by_date) != set(wanted) or len(days) != len(wanted):
-        raise ValueError('選手別コース成績は過去1年分の公式結果が必要です。')
+    seen = set()
     totals = defaultdict(lambda: [0, 0, 0, 0])
-    for date in wanted:
-        day = by_date[date]
+    for day in days:
+        date = day['date']
+        if date not in wanted or date in seen:
+            raise ValueError('選手別コース成績は過去1年分の公式結果が必要です。')
+        seen.add(date)
         if day.get('format_version') != FORMAT_VERSION:
             raise ValueError('コース成績の保存形式を確認してください。')
         for racer, course, starts, first, second, third in day['counts']:
             values = totals[(str(racer), int(course))]
             for i, value in enumerate((starts, first, second, third)):
                 values[i] += value
+    if seen != set(wanted):
+        raise ValueError('選手別コース成績は過去1年分の公式結果が必要です。')
     return {'target_date': target_date, 'start_date': wanted[0], 'end_date': wanted[-1],
             'days': len(wanted), 'totals': dict(totals)}
 
