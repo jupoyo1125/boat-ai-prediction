@@ -2042,6 +2042,71 @@ def api_odds_debug_all_status():
             'active_venues': job['active_venues'],
             'results': job['results']
         })
+@app.get('/api/biwako_tactics')
+def api_biwako_tactics():
+    """Independent, read-only per-race tactical analysis for Lake Biwa."""
+    from biwako_tactics import history as tactical_history, tactical_rows
+    try:
+        date = str(request.args.get('date', ''))
+        stadium = str(request.args.get('stadium', '11')).zfill(2)
+        race = int(request.args.get('race', 0))
+        target = datetime.strptime(date, '%Y%m%d').date()
+        today = datetime.now(timezone(timedelta(hours=9))).date()
+        if (stadium != '11' or race not in range(1, 13)
+                or target > today or (today - target).days > 7
+                or target.strftime('%Y%m%d') != date):
+            return jsonify({'ok': False, 'error': 'びわこの直近7日間のレースを選択してください。'}), 400
+        summary, readiness = tactical_history.get(date)
+        if readiness['ready_days'] < 45:
+            response = jsonify({'ok': True, 'code': 'preparing', **readiness, 'boats': []})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+
+        deadline = time.monotonic() + 30
+        racelist = f'{BASE}racelist?hd={date}&jcd=11&rno={race:02d}'
+        beforeurl = f'{BASE}beforeinfo?hd={date}&jcd=11&rno={race:02d}'
+        pages = [submit_official_page(url, deadline) for url in (racelist, beforeurl)]
+        try:
+            raw_html = await_official_page(pages[0], deadline)
+            raw = boats_from(raw_html)
+            before = parse_before(await_official_page(pages[1], deadline))
+        finally:
+            for page in pages:
+                page.cancel()
+        if set(raw) != set(range(1, 7)):
+            raise ValueError('びわこの出走表が確認できません。')
+        racers = meeting_results(raw_html, date, race, '11')
+        entries = {}
+        for boat in range(1, 7):
+            identity = raw[boat][2] if len(raw[boat]) > 2 else ''
+            found = re.match(r'\s*(\d{4,5})\s*/', identity)
+            racer_id = racers.get(boat, {}).get('racer_id') or (found.group(1) if found else None)
+            entries[boat] = {
+                'racer_id': racer_id,
+                'name': re.sub(r'^\d+\s*/\s*[A-Z]\d+\s*', '', identity).strip(),
+            }
+        try:
+            snapshot = course_history.get(date)
+            baseline_pending = False
+        except CourseHistoryPending:
+            snapshot = None
+            baseline_pending = True
+        result = {'ok': True, 'code': 'ready', 'date': date,
+                  'stadium': stadium, 'race': race,
+                  **readiness, 'baseline_pending': baseline_pending,
+                  'boats': tactical_rows(entries, before, snapshot, summary, readiness)}
+        response = jsonify(result)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except (ValueError, TypeError) as error:
+        return jsonify({'ok': False, 'error': str(error)}), 400
+    except (requests.Timeout, OfficialRequestBusy):
+        return jsonify({'ok': False, 'error': '公式データの取得が混み合っています。再読み込みしてください。'}), 503
+    except Exception:
+        app.logger.exception('Biwako tactical analysis unavailable')
+        return jsonify({'ok': False, 'error': '分析データの取得に失敗しました。再読み込みしてください。'}), 503
+
+
 @app.get('/api/analyze')
 def api_analyze():
     date = normalize_date(request.args.get('date'))
@@ -2214,6 +2279,8 @@ from historical import register_historical, public_status as historical_status
 register_historical(sys.modules[__name__])
 
 course_history.start(sys.modules[__name__])
+from biwako_tactics import history as biwako_tactics_history
+biwako_tactics_history.start(sys.modules[__name__])
 start_automation(sys.modules[__name__])
 
 from threads_publisher import start as start_threads_publisher, public_status as threads_status, PostStore
