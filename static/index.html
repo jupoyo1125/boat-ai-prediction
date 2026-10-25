@@ -147,6 +147,27 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 @media(max-width:760px){.app{padding:0 16px 16px}.site-header{height:78px}.header-label{font-size:8px;letter-spacing:1px}.section-heading h1,.section-heading h2{font-size:20px}.venue-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{padding:17px}.automation-panel{padding:11px 14px}.date-navigation{gap:6px;padding:8px}.date-navigation label{gap:2px;flex-direction:column}.date-navigation select{width:150px;min-height:28px}.date-navigation label>span{font-size:10px}.race-buttons{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.performance-category .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.app{padding:0 10px 12px}.site-header{height:72px}.brand{font-size:24px;gap:9px}.brand small{font-size:9px;letter-spacing:.8px}.brand .brand-mark{width:34px;height:34px;font-size:24px}.header-label{display:none}.main-nav{margin-bottom:12px;border-radius:0}.main-nav a{font-size:13px;padding:12px 4px 10px}.panel{border-radius:9px;padding:14px;margin-bottom:12px}.automation-panel{padding:9px 12px}.automation-panel .metric{padding:0 7px;border-top:0;border-right:0;border-bottom:0}.automation-panel .metric small{font-size:9px;white-space:nowrap}.automation-panel .metric b{font-size:18px}.automation-panel .metric:first-child b{font-size:11px;min-height:27px}.automation-panel h2{font-size:11px}.automation-details{margin-top:5px}.automation-details summary{font-size:10px}.section-heading{margin-bottom:14px;gap:6px}.section-hint{font-size:9px}.eyebrow{font-size:8px}.section-heading h1,.section-heading h2{font-size:18px}.date-navigation{grid-template-columns:57px minmax(0,1fr) 57px;margin-bottom:14px;padding:7px 5px}.day-button{padding:4px;font-size:11px}.date-navigation select{font-size:14px;width:139px}.venue-heading h2{font-size:12px}.venue-heading>span{font-size:10px}.venue-tile{min-height:59px;font-size:14px;padding:7px 2px}.venue-state{font-size:9px}.race-selection .metric{padding:7px 5px}.race-selection .metric small{font-size:10px}.race-selection .metric b{font-size:16px}.race-selection .metric:last-child b{font-size:11px;min-height:26px}.manual-controls{grid-template-columns:1fr 1fr}.manual-controls label{grid-column:1/-1}.bet-navigation{gap:4px;margin-top:16px}.bet-navigation button{font-size:12px;padding:10px 1px;min-height:44px}.bet-panel h2{font-size:17px}.category-description{font-size:9px}.bet-table td{padding:8px 10px}.bet-table td:first-child{font-size:21px}.performance-category{padding:13px}.performance-category .metric b{font-size:20px}.page-heading{margin-top:20px}.page-heading h1{font-size:23px}.page-heading>p:last-child{font-size:12px}.maintenance summary small{font-size:10px}}
 
+
+.biwako-tactics{border-top:3px solid #2d89c9}
+.biwako-tactics .section-heading{margin-bottom:8px}
+.biwako-reload{width:auto;padding:6px 12px;min-height:34px;white-space:nowrap}
+.biwako-tactics-note,.biwako-tactics-help{font-size:11px;color:var(--muted);line-height:1.7;margin:8px 0 12px}
+.biwako-tactics-help{margin:12px 0 0}
+.biwako-tactics-table{width:100%;min-width:660px;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.biwako-tactics-table th,.biwako-tactics-table td{padding:10px 8px;vertical-align:middle;font-size:12px;border-bottom:1px solid var(--line)}
+.biwako-tactics-table thead th{background:#f4f8fe;font-size:11px;white-space:nowrap}
+.biwako-tactics-table tbody th{width:25%;min-width:132px}
+.tactic-boat{display:inline-block;font-weight:900;color:var(--accent2);margin-right:5px}
+.tactic-name{display:inline-block;font-weight:700}
+.biwako-tactics-table tbody th small{display:block;color:var(--muted);font-size:10px;font-weight:400}
+.tactic-method{width:23%;line-height:1.8}
+.tactic-sep{color:#9aaab8}
+.tactic-adjusted{font-size:16px;color:#145f9f}
+.tactic-baseline,.tactic-muted{font-size:10px;color:var(--muted)}
+.tactic-delta{display:inline-block;font-size:10px;white-space:nowrap;font-weight:800}
+.tactic-delta.up{color:#128054}.tactic-delta.down{color:#bd4353}.tactic-delta.flat{color:var(--muted)}
+@media(max-width:760px){.biwako-tactics-table{min-width:695px}.biwako-tactics-table th,.biwako-tactics-table td{padding:9px 7px}}
+
 .hit-rate-button{display:block;width:100%;min-height:44px;margin-top:4px;padding:0;background:transparent;color:#1269b9;border:0;border-radius:3px;text-align:left;font-size:20px;font-weight:800;text-decoration:underline;text-underline-offset:4px;font-variant-numeric:tabular-nums}.hit-rate-button:hover:not(:disabled){background:#e9f3ff;filter:none}.hit-rate-button:disabled{opacity:1;color:var(--text);text-decoration:none}.hit-rate-hint{display:block;margin-top:2px;color:#1269b9;font-size:10px}.hit-rate-button:disabled+.hit-rate-hint{visibility:hidden}
 .hits-dialog{width:min(640px,calc(100% - 24px));max-height:85vh;max-height:85svh;padding:20px;border:1px solid var(--line);border-radius:12px;background:white;color:var(--text);box-shadow:0 16px 60px #07172c55;overflow:auto;overscroll-behavior:contain}.hits-dialog::backdrop{background:#091b36a6}.hits-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.hits-dialog h3{flex:1;min-width:0;margin:0;font-size:18px}.hits-dialog-heading button{flex:none;width:auto;padding:6px 12px;white-space:nowrap}.hits-dialog p{font-size:12px;color:var(--muted);margin:10px 0}.hits-list-scroll{max-height:55vh;max-height:55svh;overflow:auto;overscroll-behavior:contain}.hits-table{font-variant-numeric:tabular-nums}.hits-table th{position:sticky;top:0;background:#f6f8fc;font-size:11px;white-space:nowrap}.hits-table td{font-size:13px;white-space:nowrap}.hits-table th,.hits-table td{padding:10px 6px;border-bottom:1px solid #e4ebf3}.hits-table th:last-child,.hits-table td:last-child{text-align:right}.hits-table td:nth-child(3){font-weight:800;color:#173d6b}.hits-dialog .hits-total{font-weight:700;color:var(--text)}
 @media(max-width:520px){.hits-dialog{padding:14px}.hits-dialog h3{font-size:16px}.hits-table td{font-size:12px}.hits-table th,.hits-table td{padding:10px 4px}}
@@ -212,6 +233,22 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 <div class="metric"><small>本命</small><b id="main">-</b></div><div class="metric"><small>対抗</small><b id="second">-</b></div><div class="metric"><small>穴</small><b id="hole">-</b></div><div class="metric"><small>想定</small><b id="type">-</b></div>
 </div></section>
   <details class="manual-actions"><summary>手動で予想・結果を再確認</summary><div class="manual-controls"><label for="fixed">1着の固定<select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select></label><input id="investment" type="hidden" value="100"/><button disabled="" id="analyzeBtn" onclick="analyze()">AI予想</button><button class="secondary" disabled="" id="settleBtn" onclick="settlePrediction()">結果取得・学習</button></div></details>
+
+
+ </section>
+ <section id="biwakoTacticsPanel" class="panel biwako-tactics" aria-labelledby="biwakoTacticsTitle" hidden>
+  <div class="section-heading">
+   <div><p class="eyebrow">BIWAKO TACTICAL ANALYSIS</p><h2 id="biwakoTacticsTitle">びわこ｜展開別の着率変化</h2></div>
+   <button type="button" class="secondary biwako-reload" onclick="loadBiwakoTactics(true)">再確認</button>
+  </div>
+  <p id="biwakoTacticsStatus" role="status" aria-live="polite" class="biwako-tactics-note">集計状況を確認しています。</p>
+  <div class="table-scroll" id="biwakoTacticsResults" hidden>
+   <table class="biwako-tactics-table">
+    <thead><tr><th>選手・進入</th><th>展開傾向（実測）</th><th>1着率</th><th>2着率</th><th>3着率</th></tr></thead>
+    <tbody id="biwakoTacticsRows"></tbody>
+   </table>
+  </div>
+  <p class="biwako-tactics-help">過去1年間の対象レースより前の公式結果を使用。逃がし率＝その選手が外コースにいたレースで1コースが逃げた割合（因果関係ではありません）。差し率にはまくり差しを含みます。基準は選手の同進入コース1～3着率、補正後はびわこの過去データと相手関係を使った<strong>独自試算</strong>です。±は基準との差（ポイント）で、的中確率を保証するものではありません。</p>
  </section>
  <nav class="bet-navigation" aria-label="買い目の種類">
   <button type="button" id="categoryGachi" aria-controls="betPanelGachi" data-category="gachi" aria-pressed="true" onclick="showBetCategory('gachi')">🎯 ガチガチ</button>
@@ -486,6 +523,10 @@ AIが現在重視している特徴
 
 <script>
 let lastPrediction=null;
+let biwakoTacticsRequest=null;
+let biwakoTacticsCache=null;
+let biwakoTacticsSequence=0;
+
 let manualAnalysisRunning=false;
 let manualAnalysisSequence=0;
 let manualAnalysisController=null;
@@ -1102,8 +1143,101 @@ async function loadAutomationStatus(){
   }
 }
 
+function tacticPercent(value){
+  return Number.isFinite(value) ? Number(value).toFixed(1)+'%' : '—';
+}
+function tacticEscape(value){
+  return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function tacticRateCell(value){
+  const r=value||{},base=tacticPercent(r.base);
+  if(!Number.isFinite(r.estimated)||!Number.isFinite(r.delta)){
+    return '<div class="tactic-baseline">'+base+'</div><span class="tactic-muted">補正不可</span>';
+  }
+  const change=Number(r.delta),direction=change>0?'up':change<0?'down':'flat';
+  const arrow=change>0?'↑':change<0?'↓':'→';
+  return '<div class="tactic-baseline">基準 '+base+'</div><strong class="tactic-adjusted">'+
+    tacticPercent(r.estimated)+'</strong> <span class="tactic-delta '+direction+'">'+arrow+
+    (change>0?'+':'')+change.toFixed(1)+'pt</span>';
+}
+function renderBiwakoTactics(data){
+  const status=document.getElementById('biwakoTacticsStatus');
+  const results=document.getElementById('biwakoTacticsResults');
+  const body=document.getElementById('biwakoTacticsRows');
+  const progress=Number(data.ready_days||0)+'/'+Number(data.total_days||365)+'日';
+  if(data.code==='preparing'){
+    status.textContent='公式の過去結果を集計中（'+progress+'）。45日分を超えると取得済みの実測値から表示します。';
+    results.hidden=true;
+    body.innerHTML='';
+    return;
+  }
+  if(!Array.isArray(data.boats)||data.boats.length!==6){
+    status.textContent='びわこの出走表・分析データをまだ確認できません。';
+    results.hidden=true;
+    return;
+  }
+  status.textContent='集計 '+progress+(data.provisional?'｜暫定値：集計期間が未完了':'｜過去1年分の集計完了')+
+    (data.baseline_pending?'｜着率の基準データは準備中':'')+
+    '｜展示進入が未確定の場合は枠なり仮定で表示します。';
+  body.innerHTML=data.boats.map(b=>{
+    const labels=b.course===1 ?
+      [['逃げ',b.escape],['差され',b.passed],['まくられ',b.swept]] :
+      [['逃がし',b.let_escape],['差し',b.sashi],['まくり',b.makuri]];
+    const tactics=labels.map(pair=>tacticEscape(pair[0])+' <b>'+tacticPercent(pair[1])+'</b>').join('<span class="tactic-sep"> / </span>');
+    return '<tr><th scope="row"><span class="tactic-boat">'+Number(b.boat)+'号艇</span>'+
+      '<span class="tactic-name">'+tacticEscape(b.name)+'</span>'+
+      '<small>'+Number(b.course)+'コース'+(b.provisional_course?'（仮定）':'')+
+      '｜'+Number(b.starts||0)+'走'+(b.sample_warning?'・少数':'')+'</small></th>'+
+      '<td class="tactic-method">'+tactics+'</td>'+
+      '<td>'+tacticRateCell(b.rates?.first)+'</td>'+
+      '<td>'+tacticRateCell(b.rates?.second)+'</td>'+
+      '<td>'+tacticRateCell(b.rates?.third)+'</td></tr>';
+  }).join('');
+  results.hidden=false;
+}
+async function loadBiwakoTactics(force=false){
+  const panel=document.getElementById('biwakoTacticsPanel');
+  const p=getParams();
+  const isBiwako=p.stadium==='11' && /^\d{8}$/.test(p.date) && p.race>=1 && p.race<=12;
+  panel.hidden=!isBiwako;
+  if(!isBiwako){
+    if(biwakoTacticsRequest) biwakoTacticsRequest.controller.abort();
+    biwakoTacticsRequest=null;
+    ++biwakoTacticsSequence;
+    return;
+  }
+  const key=predictionKey(p);
+  if(!force && biwakoTacticsRequest?.key===key) return;
+  if(!force && biwakoTacticsCache?.key===key && Date.now()-biwakoTacticsCache.at<60000){
+    renderBiwakoTactics(biwakoTacticsCache.data);
+    return;
+  }
+  if(biwakoTacticsRequest) biwakoTacticsRequest.controller.abort();
+  const current={key,controller:new AbortController(),sequence:++biwakoTacticsSequence};
+  biwakoTacticsRequest=current;
+  document.getElementById('biwakoTacticsResults').hidden=true;
+  document.getElementById('biwakoTacticsStatus').textContent='びわこ '+p.race+'Rの実績を確認しています。';
+  try{
+    const {response,data}=await fetchPredictionJson(
+      '/api/biwako_tactics?'+new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race}),
+      {},35000,current.controller);
+    if(current.sequence!==biwakoTacticsSequence || predictionKey()!==key) return;
+    if(!response.ok||!data.ok) throw new Error(data.error||'実績データを読み込めませんでした。');
+    biwakoTacticsCache={key,at:Date.now(),data};
+    renderBiwakoTactics(data);
+  }catch(error){
+    if(current.sequence===biwakoTacticsSequence && error.name!=='AbortError'){
+      document.getElementById('biwakoTacticsStatus').textContent=
+        '展開分析を取得できませんでした。再確認を押してください。';
+    }
+  }finally{
+    if(biwakoTacticsRequest===current) biwakoTacticsRequest=null;
+  }
+}
+
 async function loadSelectedSavedPrediction(){
   if(document.getElementById('stadium').disabled) return;
+  loadBiwakoTactics();
   renderRaceButtons();
   const params=getParams();
   if(!params.stadium) return;
