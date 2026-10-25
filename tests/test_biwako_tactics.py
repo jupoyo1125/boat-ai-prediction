@@ -53,8 +53,7 @@ class ParserTests(unittest.TestCase):
             parse_day(sample(), '20261024')
 
     def test_entry_course_not_equal_boat_number(self):
-        text = sample().replace('6.80 1 0.12', '6.80 4 0.12').replace(
-            '6.80 4 0.12', '6.80 1 0.12', 1)
+        text = sample().replace('6.80 1 0.12', '6.80 4 0.12')
         # Duplicate actual courses invalidate the entire race rather than
         # silently falling back to boat numbers.
         day = parse_day(text, '20261025')
