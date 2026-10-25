@@ -55,8 +55,8 @@ class ParserTests(unittest.TestCase):
         text = sample().replace('6.80 1 0.12', '6.80 4 0.12')
         # Duplicate actual courses invalidate the entire race rather than
         # silently falling back to boat numbers.
-        day = parse_day(text, '20261025')
-        self.assertEqual(day['races'], 0)
+        with self.assertRaises(ValueError):
+            parse_day(text, '20261025')
 
 
 class ModelTests(unittest.TestCase):
