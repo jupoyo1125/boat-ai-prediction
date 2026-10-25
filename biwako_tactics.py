@@ -135,8 +135,10 @@ def parse_day(text, date):
                         if finish == 1 and mode == 'makuri':
                             target[MAKURI] += 1
             valid += 1
-    if not seen:
-        raise ValueError('公式結果のレースがありません。')
+    if not seen or not valid:
+        # Do not mark a day complete if the official winning method cannot be
+        # parsed. Reporting invented 0% rates is worse than retrying the day.
+        raise ValueError('公式結果の決まり手を確認できません。')
     return {'format_version': 1, 'date': date, 'races': valid,
             'racer': [[racer, course, *values]
                       for (racer, course), values in sorted(racers.items())],
