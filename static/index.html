@@ -234,6 +234,8 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 </div></section>
   <details class="manual-actions"><summary>手動で予想・結果を再確認</summary><div class="manual-controls"><label for="fixed">1着の固定<select id="fixed"><option value="none">1着固定なし</option><option value="1">1号艇を1着固定</option><option value="2">2号艇を1着固定</option><option value="3">3号艇を1着固定</option><option value="4">4号艇を1着固定</option><option value="5">5号艇を1着固定</option><option value="6">6号艇を1着固定</option></select></label><input id="investment" type="hidden" value="100"/><button disabled="" id="analyzeBtn" onclick="analyze()">AI予想</button><button class="secondary" disabled="" id="settleBtn" onclick="settlePrediction()">結果取得・学習</button></div></details>
 
+
+ </section>
  <section id="biwakoTacticsPanel" class="panel biwako-tactics" aria-labelledby="biwakoTacticsTitle" hidden>
   <div class="section-heading">
    <div><p class="eyebrow">BIWAKO TACTICAL ANALYSIS</p><h2 id="biwakoTacticsTitle">びわこ｜展開別の着率変化</h2></div>
@@ -247,7 +249,6 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
    </table>
   </div>
   <p class="biwako-tactics-help">過去1年間の対象レースより前の公式結果を使用。逃がし率＝その選手が外コースにいたレースで1コースが逃げた割合（因果関係ではありません）。差し率にはまくり差しを含みます。基準は選手の同進入コース1～3着率、補正後はびわこの過去データと相手関係を使った<strong>独自試算</strong>です。±は基準との差（ポイント）で、的中確率を保証するものではありません。</p>
- </section>
  </section>
  <nav class="bet-navigation" aria-label="買い目の種類">
   <button type="button" id="categoryGachi" aria-controls="betPanelGachi" data-category="gachi" aria-pressed="true" onclick="showBetCategory('gachi')">🎯 ガチガチ</button>
@@ -1235,7 +1236,8 @@ async function loadBiwakoTactics(force=false){
 }
 
 async function loadSelectedSavedPrediction(){
-  if(document.getElementById('stadium').disabled) return;  loadBiwakoTactics();
+  if(document.getElementById('stadium').disabled) return;
+  loadBiwakoTactics();
   renderRaceButtons();
   const params=getParams();
   if(!params.stadium) return;
