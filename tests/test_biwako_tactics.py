@@ -46,9 +46,8 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(by[4003][FOLLOW3], 1)
 
     def test_unknown_method_and_wrong_day_not_fabricated(self):
-        day = parse_day(sample(mode='決着不明'), '20261025')
-        self.assertEqual(day['races'], 0)
-        self.assertEqual(day['racer'], [])
+        with self.assertRaises(ValueError):
+            parse_day(sample(mode='決着不明'), '20261025')
         with self.assertRaises(ValueError):
             parse_day(sample(), '20261024')
 
