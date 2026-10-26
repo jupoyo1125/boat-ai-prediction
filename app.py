@@ -60,7 +60,7 @@ def add_cors_headers(response):
     if (request.method == 'GET' and response.status_code == 200
             and response.mimetype == 'application/json'
             and not response.direct_passthrough
-            and 'gzip' in request.headers.get('Accept-Encoding', '').lower()
+            and request.accept_encodings['gzip'] > 0
             and response.headers.get('Content-Encoding') is None
             and not request.headers.get('Range')):
         payload = response.get_data()
