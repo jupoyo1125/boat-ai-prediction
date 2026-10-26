@@ -54,6 +54,17 @@ class BandwidthBudgetTests(unittest.TestCase):
         self.assertLess(len(compressed.data), len(plain.data) * .3)
         self.assertNotIn('Content-Encoding', plain.headers)
 
+    def test_explicit_gzip_refusal_is_respected(self):
+        with mock.patch.object(core, 'read_status', return_value={
+            'ok': True, 'message': 'abcd' * 1000
+        }):
+            response = self.client.get('/api/automation', headers={
+                'Accept-Encoding': 'gzip;q=0, identity'
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.headers.get('Content-Encoding'))
+        self.assertEqual(response.json['message'], 'abcd' * 1000)
+
     def test_small_json_stays_uncompressed(self):
         with mock.patch.object(core, 'read_status', return_value={
             'ok': True, 'enabled': True, 'phase': 'waiting'
