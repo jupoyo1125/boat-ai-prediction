@@ -1,8 +1,10 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, make_response
 from itertools import permutations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import lru_cache
+import gzip
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from urllib.parse import parse_qs, unquote, urlsplit
 import json
@@ -53,6 +55,22 @@ def storage_maintenance_response(error):
 
 @app.after_request
 def add_cors_headers(response):
+    # Compress GET JSON when the client supports it; preserve normal JSON
+    # and all mutating, streamed, conditional and pre-encoded responses.
+    if (request.method == 'GET' and response.status_code == 200
+            and response.mimetype == 'application/json'
+            and not response.direct_passthrough
+            and 'gzip' in request.headers.get('Accept-Encoding', '').lower()
+            and response.headers.get('Content-Encoding') is None
+            and not request.headers.get('Range')):
+        payload = response.get_data()
+        if len(payload) >= 1024:
+            compressed = gzip.compress(payload, compresslevel=5, mtime=0)
+            if len(compressed) < len(payload):
+                response.set_data(compressed)
+                response.headers['Content-Encoding'] = 'gzip'
+                response.vary.add('Accept-Encoding')
+                response.headers.pop('ETag', None)
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
@@ -1712,9 +1730,29 @@ def api_backtest():
         'top_combos':combos
     })
 
+@lru_cache(maxsize=1)
+def compressed_home():
+    """Cache one deterministic gzip copy of the deployed HTML per worker."""
+    original = (Path(__file__).resolve().parent / 'static' / 'index.html').read_bytes()
+    return gzip.compress(original, compresslevel=6, mtime=0), hashlib.sha256(original).hexdigest()
+
+
 @app.get('/')
 def home():
-    return send_from_directory('static','index.html')
+    # A separate ETag for the compressed variant keeps 304 checks valid.
+    if request.accept_encodings['gzip'] > 0:
+        payload, digest = compressed_home()
+        response = make_response(payload)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['Cache-Control'] = 'private, no-cache'
+        response.vary.add('Accept-Encoding')
+        response.set_etag('index-gzip-' + digest)
+        response.make_conditional(request)
+        return response
+    response = send_from_directory('static', 'index.html')
+    response.vary.add('Accept-Encoding')
+    return response
 
 @app.get('/api/history')
 def api_history():
