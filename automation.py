@@ -88,7 +88,12 @@ def read_status():
     try:
         ensure_status_table()
         with state_connection() as connection:
-            row = connection.execute('SELECT state FROM boat_automation_state WHERE id=1').fetchone()
+            # Detailed per-race events stay in Postgres, but returning them on
+            # every UI poll used ~35 KB per response for 156 events.
+            # Project JSONB on the database side to save both DB and HTTP traffic.
+            row = connection.execute(
+                "SELECT state - 'race_events' FROM boat_automation_state WHERE id=1"
+            ).fetchone()
         if row:
             result = json.loads(row[0]) if isinstance(row[0], str) else dict(row[0])
             result.update(ok=True, enabled=True)
