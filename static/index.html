@@ -534,6 +534,7 @@ let manualAnalysisKey='';
 let savedPredictionSequence=0;
 let savedPredictionRequest=null;
 let lastAutomaticSummary='';
+let lastEmptySavedRefreshAt=0;
 let activePage='races';
 let selectedSavedKey='';
 let scheduleSequence=0;
@@ -1132,7 +1133,11 @@ async function loadAutomationStatus(){
     const signature=[status.date,status.predicted,status.settled].join(':');
     const changed=signature!==lastAutomaticSummary;
     lastAutomaticSummary=signature;
-    if(activePage==='races' && (changed || !lastPrediction)){
+    // When there is no stored prediction, avoid hitting the saved-forecast
+    // endpoint at every status poll. Actual changes still refresh immediately.
+    const retryUnsaved=!lastPrediction && Date.now()-lastEmptySavedRefreshAt>=120000;
+    if(activePage==='races' && (changed || retryUnsaved)){
+      if(!lastPrediction) lastEmptySavedRefreshAt=Date.now();
       await loadSelectedSavedPrediction();
     }
     if(changed && activePage==='performance') await loadPerformanceStatus();
@@ -1786,7 +1791,7 @@ renderRaceButtons();
 loadAutomationStatus();
 setInterval(()=>{
   if(!document.hidden) loadAutomationStatus();
-},15000);
+},60000);
 setInterval(()=>{
   if(!document.hidden && activePage==='learning') loadHistoricalStatus();
 },30000);

@@ -1,0 +1,43 @@
+name: Bandwidth reduction checks
+
+on:
+  push:
+    branches: ['codex/reduce-free-bandwidth-*']
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'automation.py'
+      - 'static/index.html'
+      - 'tests/test_bandwidth_budget.py'
+      - 'tests/test_bandwidth_ui.cjs'
+      - '.github/workflows/bandwidth-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BOAT_AUTO_ENABLED: '0'
+      BOAT_AUTO_RUNNER: '0'
+      BOAT_COURSE_RUNNER: '0'
+      BOAT_TACTICS_RUNNER: '0'
+      BOAT_HISTORY_RUNNER: '0'
+      BOAT_THREADS_ENABLED: '0'
+      BOAT_LINE_ENABLED: '0'
+      BOAT_LINE_BROADCAST_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile app.py automation.py tests/test_bandwidth_budget.py
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: |
+          for f in tests/test_*ui.cjs tests/test_batch.cjs tests/test_automatic_ui.cjs; do node "$f"; done
