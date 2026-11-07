@@ -704,8 +704,7 @@ class Publisher:
                                   post_id=post, error='',
                                   next_check_at=(self.clock() + timedelta(seconds=20)).isoformat())
                 continue  # Acceptance is not proof that Threads has published it.
-            if self.store.update(entry, ('publishing', 'uncertain'), state='published', post_id=post,
-                                 published_at=self.clock().isoformat(), error=''):
+            if self.store.update(entry, ('publishing', 'uncertain'), state='published', post_id=post, error=''):
                 try:
                     link = self.client.permalink(post)
                     self.store.update(entry, ('published',), permalink=link)
