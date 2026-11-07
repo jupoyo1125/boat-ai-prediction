@@ -67,7 +67,7 @@ class AgeWebhookTests(unittest.TestCase):
                   'sample_id': sample['id'], 'delivery_kind': 'verified_multicast_v1',
                   'payload': {'messages': [{'type': 'text', 'text': body}]}}
         with mock.patch.dict(os.environ, {'BOAT_LINE_REPLY_MODE': 'latest_line'}), \
-                mock.patch.object(self.store, 'line_publication', return_value=(sample, record)) as read:
+                mock.patch.object(self.store, 'line_publication', return_value=(sample, None, record)) as read:
             self.post()
             read.assert_not_called()
             self.register()
@@ -79,8 +79,28 @@ class AgeWebhookTests(unittest.TestCase):
                 self.assertIsNone(lb.latest_line_answer(self.store, self.now)[1])
             record['status'] = 'accepted'
             self.assertIsNone(lb.latest_line_answer(self.store, self.now + timedelta(minutes=9))[1])
-            read.return_value = (None, None)
+            read.return_value = (None, None, None)
             self.assertIn('まだLINEで配信済み', lb.latest_line_answer(self.store, self.now)[0])
+
+    def test_manual_registration_is_private_and_compares_actual_send_times(self):
+        form = dict(date='2026-10-15', sent='10:07', deadline='10:30', body='手動の本文')
+        route = '/admin/line/manual'
+        with mock.patch.dict(os.environ, {'BOAT_LINE_MANUAL_PASSWORD': 'k' * 32}):
+            self.assertEqual(self.client.post(route, data=form).status_code, 403)
+            form['password'] = 'k' * 32
+            self.assertEqual(self.client.post(route, data=form).status_code, 200)
+            self.assertEqual(self.client.post(route, data=dict(form, sent='10:04')).status_code, 409)
+            self.assertEqual(self.client.post(route, data=dict(form, sent='10:20')).status_code, 400)
+        self.sender.reply.assert_not_called()
+        manual = self.store.state['days']['20261015']['manual_line']
+        sample = dict(id=self.row['id'], date='20261015', deadline=manual['deadline'])
+        auto = dict(status='accepted', accepted_at=self.now.isoformat(), sample_id=sample['id'],
+                    delivery_kind='verified_multicast_v1', payload={'messages': [dict(type='text', text='自動')]})
+        with mock.patch.object(self.store, 'line_publication', return_value=(sample, manual, auto)):
+            self.assertEqual(lb.latest_line_answer(self.store, self.now)[0], '自動')
+            auto['accepted_at'] = (self.now - timedelta(minutes=4)).isoformat()
+            self.assertEqual(lb.latest_line_answer(self.store, self.now)[0], form['body'])
+            self.assertIsNone(lb.latest_line_answer(self.store, self.now + timedelta(minutes=20))[1])
 
     def test_age_statement_without_delivery_consent_is_not_registration(self):
         self.post(events=[self.event('20歳以上')])

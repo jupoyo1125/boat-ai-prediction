@@ -282,13 +282,13 @@ class LineStore:
         # Reply events are stored separately and cannot replace the broadcast.
         with state_connection() as connection:
             row = connection.execute("""
-                SELECT day->'sample', (day->'broadcast') - 'retry_key' - 'payload' ||
+                SELECT day->'sample', day->'manual_line', (day->'broadcast') - 'retry_key' - 'payload' ||
                     jsonb_build_object('payload', jsonb_build_object('messages',
                         day #> '{broadcast,payload,messages}'))
                 FROM (SELECT state->'days'->(%s::text) AS day
                       FROM boat_automation_state WHERE id=%s) AS daily
             """, (now.strftime('%Y%m%d'), STATE_ID)).fetchone()
-        return row if row else (None, None)
+        return row if row else (None, None, None)
 
     def pin(self, candidate, now):
         def change(state):
@@ -407,7 +407,16 @@ def latest_line_mode():
 
 def latest_line_answer(store, now):
     date = now.strftime('%Y%m%d')
-    sample, entry = store.line_publication(now)
+    sample, manual, entry = store.line_publication(now)
+    if manual:
+        sent, end = timestamp(manual['sent']), timestamp(manual['deadline'])
+        if sent.date() != now.date() or sent > now or end.date() != sent.date() or end <= sent:
+            raise ValueError('invalid manual publication')
+        if (not entry or entry.get('status') != 'accepted'
+                or sent >= timestamp(entry['accepted_at'])):
+            if now >= end - MIN_LEAD:
+                return '本日最後にLINEで配信した予想は、締切直前・締切後のため配信終了です。', None
+            return manual['body'], end
     if not entry or entry.get('status') != 'accepted':
         return '本日はまだLINEで配信済みの予想がありません。', None
     if (not sample or sample.get('date') != date or entry.get('sample_id') != sample.get('id')
@@ -559,6 +568,8 @@ def eligible_event(event, config, now):
 def register_line_routes(core, *, store=None, client_factory=LineClient, clock=now_jst,
                          config_provider=configuration):
     store = store if store is not None else LineStore()
+    from line_manual import register_manual
+    register_manual(core.app, store, clock)
     bot = SampleBot(core, store, clock)
 
     @core.app.post('/api/line/webhook')
