@@ -284,6 +284,8 @@ def register_broadcast_routes(core):
             pass
         response = jsonify({
             'enabled': config is not None,
+            'reply_mode': os.getenv('BOAT_LINE_REPLY_MODE', 'daily_sample'),
+            'live_reply_enabled': bool((reply_config := configuration()) and reply_config.mode == 'live'),
             'worker_running': _runner is not None and _runner.is_alive(),
             'target': target,
             'free_plan_only': True,

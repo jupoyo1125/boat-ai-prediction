@@ -388,6 +388,28 @@ class LineStore:
         return self.mutate(change)
 
 
+def latest_threads_mode():
+    return os.getenv('BOAT_LINE_REPLY_MODE') == 'latest_threads'
+
+
+def latest_threads_answer(now):
+    from latest_thread_reply import choose_reply
+    from threads_publisher import STATE_ID as posts_state_id
+    with state_connection() as connection:
+        # Read only public post fields, never the image payloads or LINE user data.
+        rows = connection.execute("""
+            SELECT p.key, p.value->>'published_at', p.value->>'deadline',
+                   p.value->>'text', p.value->>'permalink'
+            FROM boat_automation_state AS s
+            CROSS JOIN LATERAL jsonb_each(s.state->'posts') AS p(key, value)
+            WHERE s.id=%s AND s.state->>'version'='1'
+              AND p.key LIKE %s AND p.value->>'key'=p.key
+              AND p.value->>'state' IN ('published','published_late')
+              AND coalesce(p.value->>'post_id','') <> ''
+        """, (posts_state_id, 'auto:' + now.strftime('%Y%m%d') + ':%')).fetchall()
+    return choose_reply(rows, now, MIN_LEAD)
+
+
 class SampleBot:
     def __init__(self, core, store, clock=now_jst):
         self.core, self.store, self.clock = core, store, clock
@@ -395,6 +417,11 @@ class SampleBot:
     @strict_state_reads
     def answer(self, text):
         text = re.sub(r'\s+', '', unicodedata.normalize('NFKC', text)).lower()
+        if latest_threads_mode() and text == '買い目':
+            try:
+                return latest_threads_answer(self.clock().astimezone(JST))
+            except Exception:
+                return '現在、投稿記録を確認できません。少し時間をおいて「買い目」と送ってください。', None
         requested = None
         if text not in COMMANDS:
             for stadium, venue in self.core.STADIUMS.items():
@@ -405,6 +432,8 @@ class SampleBot:
                     requested = stadium, int(match.group(1))
                     break
             if requested is None:
+                if latest_threads_mode():
+                    return '「買い目」と送ると、本日Threadsで直近に公開した競艇投稿が届きます。締切直前・締切後は配信終了です。', None
                 return HELP, None
         now = self.clock().astimezone(JST)
         sample = self.store.sample(now)
@@ -579,6 +608,9 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                                     '締切前なら「買い目」で確認できます。'
                                     '停止は「配信停止」と送ってください。\n'
                                     '参考情報であり、的中・利益を保証するものではありません。')
+                            if latest_threads_mode():
+                                text = ('配信希望を受け付けました。「買い目」と送ると、本日Threadsで直近に公開した'
+                                        '競艇投稿が届きます。停止は「配信停止」と送ってください。')
                         else:
                             text, buttons = AGE_PROMPT, AGE_BUTTONS
                     elif not store.is_adult(user, now):

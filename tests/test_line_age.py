@@ -59,6 +59,19 @@ class AgeWebhookTests(unittest.TestCase):
         self.assertIn('ガチガチ｜10点', self.sender.reply.call_args.args[1])
         self.assertEqual(self.store.sample(self.now)['id'], self.row['id'])
 
+    def test_latest_post_reply_only_to_consented_sender_without_pinning(self):
+        with mock.patch.dict(os.environ, {'BOAT_LINE_REPLY_MODE': 'latest_threads'}), \
+                mock.patch.object(lb, 'latest_threads_answer',
+                                  return_value=('直近の投稿本文', self.now + timedelta(minutes=10))) as read:
+            self.post()
+            read.assert_not_called()
+            self.register()
+            self.post(events=[self.event(event_id='latest-buy')])
+            self.assertEqual(self.sender.reply.call_args.args[1], '直近の投稿本文')
+            read.assert_called_once()
+            self.assertIsNone(self.store.sample(self.now))
+            self.core.load_ledger.assert_not_called()
+
     def test_age_statement_without_delivery_consent_is_not_registration(self):
         self.post(events=[self.event('20歳以上')])
         self.assertFalse(self.store.is_adult(fixtures.USER, self.now))

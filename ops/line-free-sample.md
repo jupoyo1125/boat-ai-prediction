@@ -282,3 +282,17 @@ Golden Racerです🚤
 - https://developers.line.biz/en/reference/messaging-api/#buttons
 - https://developers.line.biz/en/reference/messaging-api/#message-action
 
+
+## 「買い目」に直近のThreads投稿を返信する
+LINE Webhook側で BOAT_LINE_REPLY_MODE=latest_threads を設定します。
+BOAT_LINE_ENABLED=1、BOAT_LINE_MODE=live と既存の接続情報が必要です。
+Threads投稿側と同じ投稿記録（状態ID 2）が読めるDBを使います。
+この返信のためにThreads投稿ワーカーやLINE一斉配信を起動する必要はありません。
+
+「20歳以上・配信希望」と回答済みの人が「買い目」と送ると、日本時間の当日に
+公開時刻・公開IDを確認できた直近の自動投稿の本文を本人に返信します。
+元投稿リンクを確認できた場合は添付します。見送り投稿も実際の本文を返します。
+未公開・予約中は対象外です。直近の投稿が締切90秒前以降なら終了を案内します。
+確認できる投稿がない場合はその旨を返し、別レースの予想は作りません。
+従来の指定レース一斉配信とは別で、その日のサンプルを固定しません。
+/api/line_publishing の reply_mode と live_reply_enabled が返信設定の確認項目です。
