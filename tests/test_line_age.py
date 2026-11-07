@@ -59,6 +59,29 @@ class AgeWebhookTests(unittest.TestCase):
         self.assertIn('ガチガチ｜10点', self.sender.reply.call_args.args[1])
         self.assertEqual(self.store.sample(self.now)['id'], self.row['id'])
 
+    def test_latest_line_replays_accepted_body_only_to_opted_in_sender(self):
+        body = '元の本文そのまま\n1-2-3'
+        sample = {'id': self.row['id'], 'date': self.row['date'],
+                  'deadline': (self.now + timedelta(minutes=10)).isoformat()}
+        record = {'status': 'accepted', 'accepted_at': self.now.isoformat(),
+                  'sample_id': sample['id'], 'delivery_kind': 'verified_multicast_v1',
+                  'payload': {'messages': [{'type': 'text', 'text': body}]}}
+        with mock.patch.dict(os.environ, {'BOAT_LINE_REPLY_MODE': 'latest_line'}), \
+                mock.patch.object(self.store, 'line_publication', return_value=(sample, record)) as read:
+            self.post()
+            read.assert_not_called()
+            self.register()
+            self.post(events=[self.event(event_id='latest-buy')])
+            self.assertEqual(self.sender.reply.call_args.args[1], body)
+            self.core.load_ledger.assert_not_called()
+            for status in ('retry', 'sending', 'unknown', 'failed'):
+                record['status'] = status
+                self.assertIsNone(lb.latest_line_answer(self.store, self.now)[1])
+            record['status'] = 'accepted'
+            self.assertIsNone(lb.latest_line_answer(self.store, self.now + timedelta(minutes=9))[1])
+            read.return_value = (None, None)
+            self.assertIn('まだLINEで配信済み', lb.latest_line_answer(self.store, self.now)[0])
+
     def test_age_statement_without_delivery_consent_is_not_registration(self):
         self.post(events=[self.event('20歳以上')])
         self.assertFalse(self.store.is_adult(fixtures.USER, self.now))

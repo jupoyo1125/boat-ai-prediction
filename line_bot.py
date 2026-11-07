@@ -277,6 +277,19 @@ class LineStore:
     def sample(self, now):
         return self.mutate(lambda state: deepcopy(self.day(state, now)['sample']))
 
+    def line_publication(self, now):
+        # One broadcast per JST day. Read the same immutable record that LINE accepted.
+        # Reply events are stored separately and cannot replace the broadcast.
+        with state_connection() as connection:
+            row = connection.execute("""
+                SELECT day->'sample', (day->'broadcast') - 'retry_key' - 'payload' ||
+                    jsonb_build_object('payload', jsonb_build_object('messages',
+                        day #> '{broadcast,payload,messages}'))
+                FROM (SELECT state->'days'->(%s::text) AS day
+                      FROM boat_automation_state WHERE id=%s) AS daily
+            """, (now.strftime('%Y%m%d'), STATE_ID)).fetchone()
+        return row if row else (None, None)
+
     def pin(self, candidate, now):
         def change(state):
             day = self.day(state, now)
@@ -388,6 +401,34 @@ class LineStore:
         return self.mutate(change)
 
 
+def latest_line_mode():
+    return os.getenv('BOAT_LINE_REPLY_MODE') == 'latest_line'
+
+
+def latest_line_answer(store, now):
+    date = now.strftime('%Y%m%d')
+    sample, entry = store.line_publication(now)
+    if not entry or entry.get('status') != 'accepted':
+        return '本日はまだLINEで配信済みの予想がありません。', None
+    if (not sample or sample.get('date') != date or entry.get('sample_id') != sample.get('id')
+            or not re.fullmatch(r'auto:' + date + r':(?:0[1-9]|1[0-9]|2[0-4]):(?:0[1-9]|1[0-2])',
+                                str(entry.get('sample_id')))
+            or entry.get('delivery_kind') != 'verified_multicast_v1'):
+        raise ValueError('invalid LINE publication')
+    accepted, deadline = timestamp(entry['accepted_at']), timestamp(sample['deadline'])
+    if accepted.strftime('%Y%m%d') != date or accepted > now or deadline.strftime('%Y%m%d') != date:
+        raise ValueError('invalid LINE publication time')
+    if now >= deadline - MIN_LEAD:
+        return '本日最後にLINEで配信した予想は、締切直前・締切後のため配信終了です。', None
+    messages = entry['payload']['messages']
+    if len(messages) != 1 or messages[0].get('type') != 'text':
+        raise ValueError('invalid LINE publication payload')
+    body = messages[0]['text']
+    if not isinstance(body, str) or not body.strip() or len(body.encode('utf-16-le')) // 2 > 5000:
+        raise ValueError('invalid LINE publication text')
+    return body, deadline
+
+
 class SampleBot:
     def __init__(self, core, store, clock=now_jst):
         self.core, self.store, self.clock = core, store, clock
@@ -395,6 +436,11 @@ class SampleBot:
     @strict_state_reads
     def answer(self, text):
         text = re.sub(r'\s+', '', unicodedata.normalize('NFKC', text)).lower()
+        if latest_line_mode() and text == '買い目':
+            try:
+                return latest_line_answer(self.store, self.clock().astimezone(JST))
+            except Exception:
+                return '現在、投稿記録を確認できません。少し時間をおいて「買い目」と送ってください。', None
         requested = None
         if text not in COMMANDS:
             for stadium, venue in self.core.STADIUMS.items():
@@ -405,6 +451,8 @@ class SampleBot:
                     requested = stadium, int(match.group(1))
                     break
             if requested is None:
+                if latest_line_mode():
+                    return '「買い目」と送ると、本日最後にLINEで配信した予想の本文が届きます。締切直前・締切後は配信終了です。', None
                 return HELP, None
         now = self.clock().astimezone(JST)
         sample = self.store.sample(now)
@@ -579,6 +627,9 @@ def register_line_routes(core, *, store=None, client_factory=LineClient, clock=n
                                     '締切前なら「買い目」で確認できます。'
                                     '停止は「配信停止」と送ってください。\n'
                                     '参考情報であり、的中・利益を保証するものではありません。')
+                            if latest_line_mode():
+                                text = ('配信希望を受け付けました。「買い目」と送ると、本日最後にLINEで配信した'
+                                        '予想の本文が届きます。停止は「配信停止」と送ってください。')
                         else:
                             text, buttons = AGE_PROMPT, AGE_BUTTONS
                     elif not store.is_adult(user, now):

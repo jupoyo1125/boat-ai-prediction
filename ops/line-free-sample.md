@@ -282,3 +282,12 @@ Golden Racerです🚤
 - https://developers.line.biz/en/reference/messaging-api/#buttons
 - https://developers.line.biz/en/reference/messaging-api/#message-action
 
+
+## 「買い目」に当日のLINE配信本文を返信する
+
+Webhook側を BOAT_LINE_REPLY_MODE=latest_line に設定します。BOAT_LINE_ENABLED=1、
+BOAT_LINE_MODE=live と既存の接続情報が必要です。確認済みの本人への個別返信です。
+日本時間当日のLINE配信記録（状態ID 3）のうち、LINE API受理済みの本文をそのまま返します。
+自動配信は現在1日最大1回です。未配信・失敗・結果不明、前日の予想やThreadsは使いません。
+締切90秒前以降は配信終了を案内します。トークでの返信自体は元の配信記録を更新しません。
+LINE公式アカウント管理画面からの手動配信はこのシステムの配信記録には入りません。
