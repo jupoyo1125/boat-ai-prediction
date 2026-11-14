@@ -1,4 +1,4 @@
-"""Biwako tactical tendencies from official, prior-day race result archives.
+"""All-venue tactical tendencies from official, prior-day race result archives.
 
 This is a separate, read-only-to-the-forecast exploratory model. It never
 modifies existing model weights or saved predictions.
@@ -15,11 +15,12 @@ import time
 import unicodedata
 
 from historical_archive import archive_url, decode_archive, MAX_COMPRESSED
+from race_venues import STADIUMS
 from racer_course_history import year_window
 from state_store import (database_url, state_connection, atomic_write_json,
                          require_storage_writable, storage_paused)
 
-BIWAKO = '11'
+BIWAKO = '11'  # Legacy daily archive format keeps the Biwako summary.
 # Starts, 1st, 2nd, 3rd, 逃げ, 差され, 捲られ, 逃がし,
 # 差し勝ち, 捲り勝ち, 逃げ時2着, 逃げ時3着.
 FIELD_COUNT = 12
@@ -31,14 +32,22 @@ CREATE TABLE IF NOT EXISTS public.boat_tactic_days (
   day TEXT PRIMARY KEY CHECK (day ~ '^[0-9]{8}$'),
   payload JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS public.boat_tactic_venue_days (
+  day TEXT PRIMARY KEY CHECK (day ~ '^[0-9]{8}$'),
+  payload JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ALTER TABLE public.boat_tactic_days ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.boat_tactic_venue_days ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.boat_tactic_days FROM PUBLIC;
+REVOKE ALL ON public.boat_tactic_venue_days FROM PUBLIC;
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
   REVOKE ALL ON public.boat_tactic_days FROM anon;
+  REVOKE ALL ON public.boat_tactic_venue_days FROM anon;
  END IF;
  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
   REVOKE ALL ON public.boat_tactic_days FROM authenticated;
+  REVOKE ALL ON public.boat_tactic_venue_days FROM authenticated;
  END IF;
 END $$;
 """
@@ -71,6 +80,7 @@ def parse_day(text, date):
         raise ValueError('公式結果の集計日が一致しません。')
     racers = defaultdict(lambda: [0] * FIELD_COUNT)
     venue_rates = defaultdict(lambda: [0] * FIELD_COUNT)
+    all_venues = defaultdict(lambda: [0] * FIELD_COUNT)
     seen, valid = set(), 0
     for venue in re.finditer(r'(?m)^(\d{2})KBGN\s*\n([\s\S]*?)^\1KEND', text):
         jcd, body = venue.groups()
@@ -110,6 +120,7 @@ def parse_day(text, date):
             was_escape = winner_course == 1 and mode == 'escape'
             for boat, (racer, course, finish) in positions.items():
                 for target in (racers[(racer, course)],
+                               all_venues[(jcd, course)] if jcd in STADIUMS else None,
                                venue_rates[course] if jcd == BIWAKO else None):
                     if target is None:
                         continue
@@ -142,7 +153,9 @@ def parse_day(text, date):
     return {'format_version': 1, 'date': date, 'races': valid,
             'racer': [[racer, course, *values]
                       for (racer, course), values in sorted(racers.items())],
-            'biwako': [[course, *values] for course, values in sorted(venue_rates.items())]}
+            'biwako': [[course, *values] for course, values in sorted(venue_rates.items())],
+            'venues': [[venue, course, *values]
+                       for (venue, course), values in sorted(all_venues.items())]}
 
 
 def ensure_schema():
@@ -170,6 +183,19 @@ def known_days(wanted):
     return {d for d in wanted if (PATH / (d + '.json')).exists()}
 
 
+def known_venue_days(wanted):
+    """Only count verified venue snapshots, never fabricate local averages."""
+    if database_url():
+        ensure_schema()
+        with state_connection() as conn:
+            conn.execute("SET LOCAL statement_timeout = '6s'")
+            return {row[0] for row in conn.execute(
+                "SELECT day FROM public.boat_tactic_venue_days WHERE day = ANY(%s) "
+                "AND payload->>'format_version'='1'", (wanted,)).fetchall()}
+    return {day for day in wanted if (PATH / (day + '.json')).exists()
+            and 'venues' in json.loads((PATH / (day + '.json')).read_text())}
+
+
 def read_days(wanted):
     if database_url():
         ensure_schema()
@@ -184,13 +210,25 @@ def read_days(wanted):
 
 
 def write_day(day):
+    """Maintain old verified racer snapshots while backfilling new venue totals."""
     require_storage_writable()
     if database_url():
         ensure_schema()
         with state_connection() as conn:
+            # Existing snapshots are never replaced, preventing retroactive
+            # changes to the current Biwako model or archived racer figures.
             conn.execute("INSERT INTO public.boat_tactic_days (day, payload) VALUES (%s, %s::jsonb) "
                          "ON CONFLICT (day) DO NOTHING",
-                         (day['date'], json.dumps(day, separators=(',', ':'))))
+                         (day['date'], json.dumps(
+                             {k: v for k, v in day.items() if k != 'venues'},
+                             separators=(',', ':'))))
+            if 'venues' in day:
+                venues = {'format_version': 1, 'date': day['date'],
+                          'venues': day['venues']}
+                conn.execute(
+                    "INSERT INTO public.boat_tactic_venue_days (day, payload) "
+                    "VALUES (%s, %s::jsonb) ON CONFLICT (day) DO NOTHING",
+                    (day['date'], json.dumps(venues, separators=(',', ':'))))
             conn.commit()
     else:
         atomic_write_json(PATH / (day['date'] + '.json'), day)
@@ -226,7 +264,7 @@ def modified_rate(base, delta, weight=1):
 
 
 def tactical_rows(entries, before, course_snapshot, summary, readiness):
-    venue = summary['biwako']
+    venue = summary.get('venue', summary.get('biwako', {}))
     competitors = {}
     for boat in range(1, 7):
         entry = entries.get(boat, {})
