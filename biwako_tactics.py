@@ -409,7 +409,10 @@ def compact_summary(date, entries, before, stadium=BIWAKO):
                      'start_date': earliest, 'end_date': latest,
                      'baseline_days': course_days}
         if tactic_days < 45 or not racers:
-            return {'racer': {}, 'venue': {}}, readiness, None, course_days < len(wanted)
+            empty = {'racer': {}, 'venue': {}}
+            if stadium == BIWAKO:
+                empty['biwako'] = empty['venue']
+            return empty, readiness, None, course_days < len(wanted)
         racer_records = connection.execute(
             TACTIC_RACER_SUMS, (earliest, latest, racers)).fetchall()
         if stadium == BIWAKO:
@@ -430,6 +433,8 @@ def compact_summary(date, entries, before, stadium=BIWAKO):
                          for racer, course, *values in racer_records},
                'venue': {int(course): [int(x) for x in values]
                          for course, *values in venue_records}}
+    if stadium == BIWAKO:
+        summary['biwako'] = summary['venue']  # Legacy API/internal callers.
     snapshot = ({'totals': {(str(racer), int(course)): [int(x) for x in values]
                             for racer, course, *values in baseline_records}}
                 if course_days >= 300 else None)
@@ -478,6 +483,8 @@ class TacticHistory:
                         for i, v in enumerate(values):
                             dst[i] += v
             summary = {'racer': totals, 'venue': venue}
+            if stadium == BIWAKO:
+                summary['biwako'] = venue
             readiness = {'ready_days': len(present), 'total_days': len(wanted),
                          'venue_days': venue_days,
                          'venue_pending': venue_days != len(wanted),
