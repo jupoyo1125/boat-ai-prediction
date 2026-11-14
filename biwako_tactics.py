@@ -355,8 +355,22 @@ TACTIC_RACER_SUMS = _sql_totals('boat_tactic_days', 'racer', 2, FIELD_COUNT, Tru
 TACTIC_VENUE_SUMS = _sql_totals('boat_tactic_days', 'biwako', 1, FIELD_COUNT)
 COURSE_RACER_SUMS = _sql_totals('boat_racer_course_days', 'counts', 2, 4, True)
 
+# New venue snapshots are compact (max 24 x 6 records per day) and the
+# database filters to the selected course BEFORE returning any data to Flask.
+TACTIC_ALL_VENUE_SUMS = (
+    "SELECT (entry.value->>1)::integer AS course, "
+    + ", ".join(
+        f"SUM((entry.value->>{2+i})::integer)::integer AS n{i}"
+        for i in range(FIELD_COUNT))
+    + " FROM public.boat_tactic_venue_days AS d "
+      "CROSS JOIN LATERAL jsonb_array_elements(d.payload->'venues') AS entry(value) "
+      "WHERE d.day BETWEEN %s AND %s "
+      "AND d.payload->>'format_version'='1' "
+      "AND entry.value->>0 = %s GROUP BY 1"
+)
 
-def compact_summary(date, entries, before):
+
+def compact_summary(date, entries, before, stadium=BIWAKO):
     """Only transfer six entrants' historical counts, not ~365 daily archives.
 
     Keep a common point-in-time window for all statistics. Use available
@@ -365,6 +379,8 @@ def compact_summary(date, entries, before):
     """
     if not database_url():
         raise RuntimeError('compact_summary requires the durable result database')
+    if stadium not in STADIUMS:
+        raise ValueError('未対応の競艇場です。')
     wanted = year_window(date)
     earliest, latest = wanted[0], wanted[-1]
     racers = sorted({str(entry.get('racer_id') or '') for entry in entries.values()
@@ -381,16 +397,29 @@ def compact_summary(date, entries, before):
             (earliest, latest, earliest, latest),
         ).fetchone()
         tactic_days, course_days = map(int, status)
+        venue_days = (tactic_days if stadium == BIWAKO else int(
+            connection.execute(
+                "SELECT count(*) FROM public.boat_tactic_venue_days "
+                "WHERE day BETWEEN %s AND %s AND payload->>'format_version'='1'",
+                (earliest, latest)).fetchone()[0]))
         readiness = {'ready_days': tactic_days, 'total_days': len(wanted),
-                     'provisional': tactic_days != len(wanted),
+                     'venue_days': venue_days,
+                     'venue_pending': venue_days < len(wanted),
+                     'provisional': tactic_days != len(wanted) or venue_days != len(wanted),
                      'start_date': earliest, 'end_date': latest,
                      'baseline_days': course_days}
         if tactic_days < 45 or not racers:
-            return {'racer': {}, 'biwako': {}}, readiness, None, course_days < len(wanted)
+            return {'racer': {}, 'venue': {}}, readiness, None, course_days < len(wanted)
         racer_records = connection.execute(
             TACTIC_RACER_SUMS, (earliest, latest, racers)).fetchall()
-        venue_records = connection.execute(
-            TACTIC_VENUE_SUMS, (earliest, latest)).fetchall()
+        if stadium == BIWAKO:
+            venue_records = connection.execute(
+                TACTIC_VENUE_SUMS, (earliest, latest)).fetchall()
+        elif venue_days:
+            venue_records = connection.execute(
+                TACTIC_ALL_VENUE_SUMS, (earliest, latest, stadium)).fetchall()
+        else:
+            venue_records = []
         # Partial months must not be disguised as a full-year baseline.
         # 300 observed days is the minimum for an interim course baseline.
         baseline_records = (connection.execute(
@@ -399,8 +428,8 @@ def compact_summary(date, entries, before):
 
     summary = {'racer': {(str(racer), int(course)): [int(x) for x in values]
                          for racer, course, *values in racer_records},
-               'biwako': {int(course): [int(x) for x in values]
-                          for course, *values in venue_records}}
+               'venue': {int(course): [int(x) for x in values]
+                         for course, *values in venue_records}}
     snapshot = ({'totals': {(str(racer), int(course)): [int(x) for x in values]
                             for racer, course, *values in baseline_records}}
                 if course_days >= 300 else None)
@@ -414,15 +443,19 @@ class TacticHistory:
         self.failures = {}
         self.worker = None
 
-    def get(self, date):
+    def get(self, date, stadium=BIWAKO):
+        if stadium not in STADIUMS:
+            raise ValueError('未対応の競艇場です。')
         wanted = year_window(date)
+        key = (date, stadium)
         with self.lock:
-            cached = self.snapshots.get(date)
+            cached = self.snapshots.get(key)
             if cached and time.monotonic() - cached['loaded_at'] < 60:
                 return cached['summary'], cached['readiness']
             present = known_days(wanted)
             totals = defaultdict(lambda: [0] * FIELD_COUNT)
             venue = defaultdict(lambda: [0] * FIELD_COUNT)
+            venue_days = 0
             for offset in range(0, len(wanted), 7):
                 for day in read_days([x for x in wanted[offset:offset + 7] if x in present]):
                     if day.get('format_version') != 1 or day.get('date') not in wanted:
@@ -431,16 +464,27 @@ class TacticHistory:
                         dst = totals[(str(racer), int(course))]
                         for i, v in enumerate(values):
                             dst[i] += v
-                    for course, *values in day['biwako']:
+                    if stadium == BIWAKO:
+                        venue_rows = day.get('biwako', [])
+                        venue_days += 1
+                    else:
+                        venue_rows = [(course, *values)
+                                      for jcd, course, *values in day.get('venues', [])
+                                      if str(jcd).zfill(2) == stadium]
+                        if 'venues' in day:
+                            venue_days += 1
+                    for course, *values in venue_rows:
                         dst = venue[int(course)]
                         for i, v in enumerate(values):
                             dst[i] += v
-            summary = {'racer': totals, 'biwako': venue}
+            summary = {'racer': totals, 'venue': venue}
             readiness = {'ready_days': len(present), 'total_days': len(wanted),
-                         'provisional': len(present) != len(wanted),
+                         'venue_days': venue_days,
+                         'venue_pending': venue_days != len(wanted),
+                         'provisional': len(present) != len(wanted) or venue_days != len(wanted),
                          'start_date': wanted[0], 'end_date': wanted[-1]}
-            self.snapshots[date] = {'loaded_at': time.monotonic(), 'summary': summary,
-                                    'readiness': readiness}
+            self.snapshots[key] = {'loaded_at': time.monotonic(), 'summary': summary,
+                                   'readiness': readiness}
             while len(self.snapshots) > 2:
                 self.snapshots.popitem(last=False)
             return summary, readiness
@@ -455,7 +499,12 @@ class TacticHistory:
                     today = datetime.now(timezone(timedelta(hours=9))).strftime('%Y%m%d')
                     wanted = year_window(today)
                     present = known_days(wanted)
-                    missing = [d for d in reversed(wanted) if d not in present
+                    venue_present = known_venue_days(wanted)
+                    # Backfill recent dates first so all venues gain a useful
+                    # provisional sample, then complete the year. Only two
+                    # official archives are fetched per cycle.
+                    missing = [d for d in reversed(wanted)
+                               if (d not in present or d not in venue_present)
                                and self.failures.get(d, 0) <= time.monotonic()]
                     with lease() as acquired:
                         if acquired:
@@ -473,9 +522,9 @@ class TacticHistory:
                                     worked = True
                                 except Exception:
                                     self.failures[date] = time.monotonic() + 300
-                                    core.app.logger.exception('Biwako tactics will retry %s', date)
+                                    core.app.logger.exception('Venue tactics will retry %s', date)
             except Exception:
-                core.app.logger.exception('Biwako tactics cache waiting for recovery')
+                core.app.logger.exception('Venue tactics cache waiting for recovery')
             time.sleep(5 if worked else 60)
 
     def start(self, core):
@@ -485,7 +534,7 @@ class TacticHistory:
         with self.lock:
             if not self.worker or not self.worker.is_alive():
                 self.worker = threading.Thread(target=self.run, args=(core,), daemon=True,
-                                               name='biwako-tactics')
+                                               name='venue-tactics')
                 self.worker.start()
 
 
