@@ -287,6 +287,7 @@ def tactical_rows(entries, before, course_snapshot, summary, readiness):
                              'sashi': pct(record, SASHI) if course > 1 else None,
                              'makuri': pct(record, MAKURI) if course > 1 else None,
                              'baseline_starts': base[0],
+                             'venue_starts': typical[START] if typical else 0,
                              '_record': record, '_typical': typical,
                              '_baseline': baseline}
     first_course = next((b for b in competitors.values() if b['course'] == 1), None)
@@ -324,7 +325,8 @@ def tactical_rows(entries, before, course_snapshot, summary, readiness):
                       for i, (key, delta) in enumerate(zip(
                           ('first', 'second', 'third'),
                           (first_delta, second_delta, third_delta)))}
-        b['sample_warning'] = b['starts'] < 12 or b['baseline_starts'] < 12
+        b['sample_warning'] = (b['starts'] < 12 or b['baseline_starts'] < 12
+                               or b['venue_starts'] < 60)
     return [competitors[i] for i in range(1, 7)]
 
 
