@@ -190,7 +190,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 </header>
 <nav class="main-nav" aria-label="メインメニュー">
  <a href="#races" id="navRaces" data-nav="races" aria-current="page">レース情報</a>
- <a href="#biwako" id="navBiwako" data-nav="biwako" onclick="requestBiwakoFocus()">びわこ展開分析</a>
+ <a href="#tactics" id="navBiwako" data-nav="tactics" onclick="requestTacticsFocus()">全場展開分析</a>
  <a href="#performance" id="navPerformance" data-nav="performance">運用実績</a>
  <a href="#learning" id="navLearning" data-nav="learning">AI学習</a>
 </nav>
@@ -245,11 +245,11 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
  </section>
  <section id="biwakoTacticsPanel" class="panel biwako-tactics" aria-labelledby="biwakoTacticsTitle" hidden>
   <div class="section-heading">
-   <div><p class="eyebrow">BIWAKO TACTICAL ANALYSIS</p><h2 id="biwakoTacticsTitle">びわこ｜展開別の着率変化</h2></div>
+   <div><p class="eyebrow">ALL VENUES · TACTICAL ANALYSIS</p><h2 id="biwakoTacticsTitle">展開別の着率変化</h2></div>
    <button type="button" class="secondary biwako-reload" onclick="loadBiwakoTactics(true)">再確認</button>
   </div>
-  <div class="biwako-race-heading"><strong id="biwakoSelectedRace">びわこ 1R</strong><span>レースを選ぶと、6選手の傾向と着率変化を表示</span></div>
-  <div id="biwakoRaceButtons" class="race-buttons biwako-race-buttons" role="group" aria-label="びわこ展開分析の1Rから12R"></div>
+  <div class="biwako-race-heading"><strong id="biwakoSelectedRace">選択場 1R</strong><span>レースを選ぶと、6選手の傾向と着率変化を表示</span></div>
+  <div id="biwakoRaceButtons" class="race-buttons biwako-race-buttons" role="group" aria-label="展開分析の1Rから12R"></div>
   <p id="biwakoTacticsStatus" role="status" aria-live="polite" class="biwako-tactics-note">集計状況を確認しています。</p>
   <div class="table-scroll" id="biwakoTacticsResults" hidden>
    <table class="biwako-tactics-table">
@@ -257,7 +257,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
     <tbody id="biwakoTacticsRows"></tbody>
    </table>
   </div>
-  <p class="biwako-tactics-help">展開傾向と着率の基準値は、対象レースの前日までに全国24場で出走した「その選手の同進入コース」の過去1年間の公式結果から集計。びわこ開催の同コース平均と相手関係で<strong>独自の参考補正</strong>を行います。逃がし率＝1コースが逃げ切ったレースの割合（相手を助けた因果関係ではありません）。差し率にはまくり差しを含みます。±は着率の基準値との差（パーセントポイント）です。各艇の補正値は予想の的中確率や購入推奨を保証するものではありません。</p>
+  <p class="biwako-tactics-help">展開傾向と着率の基準値は、対象レースの前日までに全国24場で出走した「その選手の同進入コース」の過去1年間の公式結果から集計。<strong>選択した競艇場</strong>の同コース平均と相手関係で独自の参考補正を行います。場別データの蓄積途中は、実測値だけを表示し補正値を作りません。逃がし率＝1コースが逃げ切ったレースの割合（相手を助けた因果関係ではありません）。差し率にはまくり差しを含みます。±は着率の基準値との差（パーセントポイント）です。各艇の補正値は予想の的中確率や購入推奨を保証するものではありません。</p>
  </section>
  <nav class="bet-navigation" aria-label="買い目の種類">
   <button type="button" id="categoryGachi" aria-controls="betPanelGachi" data-category="gachi" aria-pressed="true" onclick="showBetCategory('gachi')">🎯 ガチガチ</button>
@@ -536,6 +536,7 @@ let biwakoTacticsRequest=null;
 let biwakoTacticsCache=null;
 let biwakoTacticsSequence=0;
 let biwakoShortcutPending=false;
+let tacticsShortcutPending=false;
 
 let manualAnalysisRunning=false;
 let manualAnalysisSequence=0;
@@ -615,13 +616,34 @@ async function fetchPredictionJson(url,options={},timeoutMs=15000,controller=new
 const VENUE_NAMES=['桐生','戸田','江戸川','平和島','多摩川','浜名湖','蒲郡','常滑','津','三国','びわこ','住之江','尼崎','鳴門','丸亀','児島','宮島','徳山','下関','若松','芦屋','福岡','唐津','大村'];
 let listedVenues=[];
 function showPage(view){
-  if(!['races','biwako','performance','learning'].includes(view)) view='races';
-  activePage=view==='biwako'?'races':view;
+  if(!['races','biwako','tactics','performance','learning'].includes(view)) view='races';
+  activePage=(view==='biwako'||view==='tactics')?'races':view;
   document.querySelectorAll('[data-page]').forEach(page=>{page.hidden=page.getAttribute('data-page')!==activePage;});
   document.querySelectorAll('[data-nav]').forEach(link=>{
     if(link.getAttribute('data-nav')===view) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
+}
+function requestTacticsFocus(){
+  tacticsShortcutPending=true;
+  focusTacticsWhenReady();
+}
+function focusTacticsWhenReady(){
+  if(!tacticsShortcutPending) return;
+  const select=document.getElementById('stadium');
+  if(!scheduleLoadedDate || select.disabled) return;
+  const selected=listedVenues.some(v=>v.stadium===select.value)
+    ?select.value:listedVenues[0]?.stadium;
+  if(!selected){
+    tacticsShortcutPending=false;
+    document.getElementById('scheduleNotice').textContent=
+      'この日の開催場はありません。別の開催日を選んでください。';
+    document.getElementById('raceDirectoryTitle')?.scrollIntoView?.({block:'start'});
+    return;
+  }
+  tacticsShortcutPending=false;
+  if(select.value!==selected) selectVenue(selected,'biwakoTacticsPanel');
+  else document.getElementById('biwakoTacticsPanel')?.scrollIntoView?.({block:'start',behavior:'smooth'});
 }
 function requestBiwakoFocus(){
   biwakoShortcutPending=true;
@@ -652,8 +674,10 @@ function showPageFromHash(){
     loadHistoricalStatus();
   }
   if(hash==='biwako') requestBiwakoFocus();
+  else if(hash==='tactics') requestTacticsFocus();
   else{
     biwakoShortcutPending=false;
+    tacticsShortcutPending=false;
     window.scrollTo?.({top:0,behavior:'auto'});
   }
 }
@@ -894,6 +918,7 @@ async function loadSchedule(){
     loadRaceStatus();
     await loadSelectedSavedPrediction();
     focusBiwakoWhenReady();
+    focusTacticsWhenReady();
     return;
   }
   if(!current()) return;
@@ -907,6 +932,7 @@ async function loadSchedule(){
     loadRaceStatus();
     await loadSelectedSavedPrediction();
     focusBiwakoWhenReady();
+    focusTacticsWhenReady();
   }else{
     stadium.innerHTML='<option value="">開催情報を取得できません</option>';
     notice.textContent='開催場を取得できませんでした。「開催場を再取得」を押してください。';
@@ -1213,11 +1239,13 @@ function renderBiwakoTactics(data){
     return;
   }
   if(!Array.isArray(data.boats)||data.boats.length!==6){
-    status.textContent='びわこの出走表・分析データをまだ確認できません。';
+    status.textContent='選択場の出走表・分析データをまだ確認できません。';
     results.hidden=true;
     return;
   }
-  status.textContent='集計 '+progress+(data.provisional?'｜暫定値：集計期間が未完了':'｜過去1年分の集計完了')+
+  const venueProgress=Number(data.venue_days||0)+'/'+Number(data.total_days||365)+'日';
+  status.textContent='選手別 '+progress+'｜場別 '+venueProgress+
+    (data.venue_pending?'（場別の公式結果を集計中・補正値は十分な実績がそろった選手のみ）':'（場別1年間の集計完了）')+
     (data.baseline_pending ?
       '｜着率基準'+(Number(data.baseline_days||0)>=300?'は暫定値（'+Number(data.baseline_days)+'/'+Number(data.total_days)+'日）':'データは準備中') : '')+
     '｜展示進入が未確定の場合は枠なり仮定で表示します。';
@@ -1242,9 +1270,12 @@ function renderBiwakoRaceButtons(){
   if(!container) return;
   const params=getParams();
   const title=document.getElementById('biwakoSelectedRace');
-  if(title) title.textContent='びわこ '+params.race+'R';
+  const venue=VENUE_NAMES[Number(params.stadium)-1]||'選択場';
+  if(title) title.textContent=venue+' '+params.race+'R';
+  const heading=document.getElementById('biwakoTacticsTitle');
+  if(heading) heading.textContent=venue+'｜展開別の着率変化';
   container.innerHTML='';
-  if(params.stadium!=='11') return;
+  if(!/^(0[1-9]|1[0-9]|2[0-4])$/.test(params.stadium)) return;
   const status=raceStatusCache.get(selectedRaceStatusKey());
   for(let race=1;race<=12;race++){
     const button=document.createElement('button');
@@ -1254,7 +1285,7 @@ function renderBiwakoRaceButtons(){
     if(status?.settled?.has(race)||status?.cancelled?.has(race)) button.classList.add('settled');
     if(race===params.race) button.classList.add('active');
     button.setAttribute?.('aria-pressed',String(race===params.race));
-    button.setAttribute?.('aria-label','びわこ '+race+'Rの展開分析を表示');
+    button.setAttribute?.('aria-label',venue+' '+race+'Rの展開分析を表示');
     button.onclick=()=>{
       document.getElementById('race').value=race+'R';
       renderRaceButtons();
@@ -1266,10 +1297,11 @@ function renderBiwakoRaceButtons(){
 async function loadBiwakoTactics(force=false){
   const panel=document.getElementById('biwakoTacticsPanel');
   const p=getParams();
-  const isBiwako=p.stadium==='11' && /^\d{8}$/.test(p.date) && p.race>=1 && p.race<=12;
-  panel.hidden=!isBiwako;
+  const isVenue=/^(0[1-9]|1[0-9]|2[0-4])$/.test(p.stadium) &&
+    /^\d{8}$/.test(p.date) && p.race>=1 && p.race<=12;
+  panel.hidden=!isVenue;
   renderBiwakoRaceButtons();
-  if(!isBiwako){
+  if(!isVenue){
     if(biwakoTacticsRequest) biwakoTacticsRequest.controller.abort();
     biwakoTacticsRequest=null;
     ++biwakoTacticsSequence;
@@ -1285,10 +1317,11 @@ async function loadBiwakoTactics(force=false){
   const current={key,controller:new AbortController(),sequence:++biwakoTacticsSequence};
   biwakoTacticsRequest=current;
   document.getElementById('biwakoTacticsResults').hidden=true;
-  document.getElementById('biwakoTacticsStatus').textContent='びわこ '+p.race+'Rの実績を確認しています。';
+  const venue=VENUE_NAMES[Number(p.stadium)-1]||'選択場';
+  document.getElementById('biwakoTacticsStatus').textContent=venue+' '+p.race+'Rの実績を確認しています。';
   try{
     const {response,data}=await fetchPredictionJson(
-      '/api/biwako_tactics?'+new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race}),
+      '/api/tactics?'+new URLSearchParams({date:p.date,stadium:p.stadium,race:p.race}),
       {},35000,current.controller);
     if(current.sequence!==biwakoTacticsSequence || predictionKey()!==key) return;
     if(!response.ok||!data.ok) throw new Error(data.error||'実績データを読み込めませんでした。');
