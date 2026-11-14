@@ -87,11 +87,15 @@ class CompactSummaryChecks(unittest.TestCase):
         snapshot={'totals':{(f'400{i}',i):[75,40 if i==1 else 12,20,11]
                             for i in range(1,7)}}
         racer_entries={i:['','','400%d / A1 選手%d'%(4000+i,i)] for i in range(1,7)}
-        def page(url, deadline):
-            if 'beforeinfo' in url: raise __import__('requests').Timeout('beforeinfo not ready')
+        class Page:
+            def __init__(self,url): self.url=url
+            def cancel(self): pass
+        def page(future, deadline):
+            if 'beforeinfo' in future.url:
+                raise __import__('requests').Timeout('beforeinfo not ready')
             return '<fixture>'
         with mock.patch.object(core, 'database_url', return_value='fake'),\
-             mock.patch.object(core, 'submit_official_page', side_effect=lambda url,d:url),\
+             mock.patch.object(core, 'submit_official_page', side_effect=lambda url,d:Page(url)),\
              mock.patch.object(core, 'await_official_page', side_effect=page),\
              mock.patch.object(core, 'boats_from', return_value=racer_entries),\
              mock.patch.object(core, 'meeting_results', return_value={}),\
