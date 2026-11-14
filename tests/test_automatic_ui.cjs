@@ -48,6 +48,9 @@ function context(handler) {
       if(custom) return custom;
       if(url==='/api/performance'||url.startsWith('/api/performance?')) return response({ok:true,category_stats:{gachi:{roi:34.4,hit_rate:16.7}},automatic_category_stats:{gachi:{roi:99,hit_rate:100}},legacy_records:0});
       if(url==='/api/model') return response({ok:true,model:{samples:1,hits:1,weights:{}}});
+      if(url.startsWith('/api/tactics?')) return response({
+        ok:true,code:'preparing',ready_days:0,total_days:365,boats:[]
+      });
       if(url.startsWith('/api/saved_prediction?')) return response({ok:true,record:saved});
       throw new Error('Unexpected request '+url);
     }});
@@ -314,7 +317,7 @@ async function run() {
   const savedTimeout=context(url=>url.startsWith('/api/saved_prediction?') ? new Promise(()=>{}) : undefined);
   const checking=savedTimeout.run('loadSelectedSavedPrediction()');
   await savedTimeout.run('loadSelectedSavedPrediction()');
-  assert.equal(savedTimeout.calls.length,1);
+  assert.equal(savedTimeout.calls.filter(call=>call.url.startsWith('/api/saved_prediction?')).length,1);
   savedTimeout.expire(15000);await checking;
   assert.match(savedTimeout.elements.get('reason').textContent,/取得できませんでした/);
   assert.equal(savedTimeout.elements.get('analyzeBtn').disabled,false);
