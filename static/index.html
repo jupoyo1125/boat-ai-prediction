@@ -1258,7 +1258,7 @@ function renderBiwakoTactics(data){
     return '<tr><th scope="row"><span class="tactic-boat">'+Number(b.boat)+'号艇</span>'+
       '<span class="tactic-name">'+tacticEscape(b.name)+'</span>'+
       '<small>'+Number(b.course)+'コース'+(b.provisional_course?'（仮定）':'')+
-      '｜展開'+Number(b.starts||0)+'走 / 着率基準'+Number(b.baseline_starts||0)+'走'+(b.sample_warning?'・少数':'')+'</small></th>'+
+      '｜選手展開'+Number(b.starts||0)+'走 / 着率基準'+Number(b.baseline_starts||0)+'走 / 場別'+Number(b.venue_starts||0)+'走'+(b.sample_warning?'・少数':'')+'</small></th>'+
       '<td class="tactic-method">'+tactics+'</td>'+
       '<td>'+tacticRateCell(b.rates?.first)+'</td>'+
       '<td>'+tacticRateCell(b.rates?.second)+'</td>'+
