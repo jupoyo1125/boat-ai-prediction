@@ -1,7 +1,6 @@
 name: Biwako public API smoke diagnostic
 on:
-  push:
-    branches: ['codex/biwako-live-diagnostic-*']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
