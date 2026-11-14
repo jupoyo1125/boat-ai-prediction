@@ -70,8 +70,10 @@ async function test(){
 
   env.elements.get('stadium').value='04';
   await env.run('loadBiwakoTactics()');
-  assert.equal(env.elements.get('biwakoTacticsPanel').hidden,true);
-  assert.equal(env.calls.length,2,'non-Biwako courses do not call the tactical API');
+  assert.equal(env.elements.get('biwakoTacticsPanel').hidden,false);
+  assert.equal(env.calls.length,3,'all venues call the scoped tactical API');
+  assert.match(String(env.calls[2].url),/\/api\/tactics\?.*stadium=04/);
+  assert.equal(env.elements.get('biwakoTacticsResults').hidden,false);
 
   let oldResolve;
   const pending=new Promise(resolve=>oldResolve=resolve);
@@ -87,6 +89,6 @@ async function test(){
   assert.equal(delayed.calls.length,2);
   assert.equal(delayed.calls[0].options.signal.aborted,true);
   assert.match(delayed.elements.get('biwakoTacticsStatus').textContent,/170\/365/);
-  console.log('PASS: Biwako-only race panel shows honest pending, sourced rates, change arrows, escaped names, and race-scoped requests.');
+  console.log('PASS: all-venue race panel shows honest pending, sourced rates, change arrows, escaped names, and race-scoped requests.');
 }
 test().catch(error=>{console.error(error);process.exitCode=1;});

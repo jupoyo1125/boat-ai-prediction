@@ -32,7 +32,7 @@ pages[0].getAttribute=()=> 'races';pages[1].getAttribute=()=> 'performance';page
 const nav=[elements.get('navRaces'),elements.get('navBiwako'),elements.get('navPerformance'),elements.get('navLearning')];
 nav.forEach((link,i)=>{
  const originalGet=link.getAttribute;
- link.getAttribute=name=>name==='data-nav'?['races','biwako','performance','learning'][i]:originalGet(name);
+ link.getAttribute=name=>name==='data-nav'?['races','tactics','performance','learning'][i]:originalGet(name);
 });
 let selected=[],updated=0;
 const ctx=vm.createContext({
@@ -46,11 +46,11 @@ vm.runInContext(definitions,ctx);
 vm.runInContext('selectVenue=(stadium,target)=>recordSelection(stadium,target);loadSelectedSavedPrediction=()=>recordReload()',ctx);
 ctx.recordSelection=(stadium,target)=>selected.push({stadium,target});
 ctx.recordReload=()=>updated++;
-assert.match(html,/href="#biwako".*びわこ展開分析/);
+assert.match(html,/href="#tactics".*全場展開分析/);
 assert.match(html,/id="biwakoRaceButtons"/);
 ctx.evalCode=code=>vm.runInContext(code,ctx);
 
-ctx.evalCode('showPage("biwako")');
+ctx.evalCode('showPage("tactics")');
 assert.equal(ctx.evalCode('activePage'),'races');
 assert.equal(elements.get('pageRaces').hidden,false);
 assert.equal(elements.get('navBiwako').getAttribute('aria-current'),'page');
@@ -63,7 +63,7 @@ ctx.evalCode('scheduleLoadedDate="20261114";listedVenues=[{stadium:"11",venue:"�
 ctx.evalCode('focusBiwakoWhenReady()');
 assert.deepEqual(selected,[{stadium:'11',target:'biwakoTacticsPanel'}]);
 assert.equal(ctx.evalCode('biwakoShortcutPending'),false);
-console.log('PASS: direct Biwako tab opens the correct page and defers venue selection until schedule is ready.');
+console.log('PASS: legacy #biwako deep link still selects Biwako after schedule.');
 
 elements.get('stadium').value='11';
 ctx.evalCode('renderBiwakoRaceButtons()');

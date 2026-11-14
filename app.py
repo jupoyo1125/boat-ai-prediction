@@ -2080,9 +2080,10 @@ def api_odds_debug_all_status():
             'active_venues': job['active_venues'],
             'results': job['results']
         })
+@app.get('/api/tactics')
 @app.get('/api/biwako_tactics')
 def api_biwako_tactics():
-    """Independent, read-only per-race tactical analysis for Lake Biwa."""
+    """Read-only race tactics for all official 24 venues (legacy alias retained)."""
     from biwako_tactics import history as tactical_history, tactical_rows, compact_summary
     try:
         date = str(request.args.get('date', ''))
@@ -2090,15 +2091,16 @@ def api_biwako_tactics():
         race = int(request.args.get('race', 0))
         target = datetime.strptime(date, '%Y%m%d').date()
         today = datetime.now(timezone(timedelta(hours=9))).date()
-        if (stadium != '11' or race not in range(1, 13)
+        if (stadium not in STADIUMS or race not in range(1, 13)
                 or target > today or (today - target).days > 7
-                or target.strftime('%Y%m%d') != date):
-            return jsonify({'ok': False, 'error': 'びわこの直近7日間のレースを選択してください。'}), 400
+                or target.strftime('%Y%m%d') != date
+                or (request.path == '/api/biwako_tactics' and stadium != '11')):
+            return jsonify({'ok': False, 'error': '対象場の直近7日間のレースを選択してください。'}), 400
         # Load the current six racers first. A full-year archive scan before
         # checking the race previously exceeded the browser's 35s timeout.
         deadline = time.monotonic() + 22
-        racelist = f'{BASE}racelist?hd={date}&jcd=11&rno={race:02d}'
-        beforeurl = f'{BASE}beforeinfo?hd={date}&jcd=11&rno={race:02d}'
+        racelist = f'{BASE}racelist?hd={date}&jcd={stadium}&rno={race:02d}'
+        beforeurl = f'{BASE}beforeinfo?hd={date}&jcd={stadium}&rno={race:02d}'
         pages = [submit_official_page(url, deadline) for url in (racelist, beforeurl)]
         before_provisional = False
         try:
@@ -2117,7 +2119,7 @@ def api_biwako_tactics():
                 page.cancel()
         if set(raw) != set(range(1, 7)):
             raise ValueError('びわこの出走表が確認できません。')
-        racers = meeting_results(raw_html, date, race, '11')
+        racers = meeting_results(raw_html, date, race, stadium)
         entries = {}
         for boat in range(1, 7):
             identity = raw[boat][2] if len(raw[boat]) > 2 else ''
@@ -2129,10 +2131,10 @@ def api_biwako_tactics():
             }
         if database_url():
             summary, readiness, snapshot, baseline_pending = compact_summary(
-                date, entries, before)
+                date, entries, before, stadium)
         else:
             # File-backed local/dev mode retains the original archive behavior.
-            summary, readiness = tactical_history.get(date)
+            summary, readiness = tactical_history.get(date, stadium)
             try:
                 snapshot = course_history.get(date)
                 baseline_pending = False
@@ -2144,7 +2146,7 @@ def api_biwako_tactics():
             response.headers['Cache-Control'] = 'no-store'
             return response
         result = {'ok': True, 'code': 'ready', 'date': date,
-                  'stadium': stadium, 'race': race,
+                  'stadium': stadium, 'venue': STADIUMS[stadium], 'race': race,
                   **readiness, 'baseline_pending': baseline_pending,
                   'before_provisional': before_provisional,
                   'boats': tactical_rows(entries, before, snapshot, summary, readiness)}
