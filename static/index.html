@@ -1243,9 +1243,10 @@ function renderBiwakoTactics(data){
     results.hidden=true;
     return;
   }
-  const venueProgress=Number(data.venue_days||0)+'/'+Number(data.total_days||365)+'日';
+  const venueProgress=Number(data.venue_days??data.ready_days??0)+'/'+Number(data.total_days||365)+'日';
+  const venuePending=Boolean(data.venue_pending??data.provisional);
   status.textContent='選手別 '+progress+'｜場別 '+venueProgress+
-    (data.venue_pending?'（場別の公式結果を集計中・補正値は十分な実績がそろった選手のみ）':'（場別1年間の集計完了）')+
+    (venuePending?'（暫定値：場別公式結果を集計中・補正値は十分な実績がそろった選手のみ）':'（場別1年間の集計完了）')+
     (data.baseline_pending ?
       '｜着率基準'+(Number(data.baseline_days||0)>=300?'は暫定値（'+Number(data.baseline_days)+'/'+Number(data.total_days)+'日）':'データは準備中') : '')+
     '｜展示進入が未確定の場合は枠なり仮定で表示します。';
