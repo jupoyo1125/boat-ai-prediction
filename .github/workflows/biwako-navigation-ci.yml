@@ -1,0 +1,40 @@
+name: Biwako race navigation checks
+
+on:
+  push:
+    branches: ['codex/biwako-race-navigation-*']
+  pull_request:
+    paths:
+      - 'static/index.html'
+      - 'tests/test_biwako_navigation_ui.cjs'
+      - '.github/workflows/biwako-navigation-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BOAT_AUTO_ENABLED: '0'
+      BOAT_AUTO_RUNNER: '0'
+      BOAT_COURSE_RUNNER: '0'
+      BOAT_TACTICS_RUNNER: '0'
+      BOAT_HISTORY_RUNNER: '0'
+      BOAT_THREADS_ENABLED: '0'
+      BOAT_LINE_ENABLED: '0'
+      BOAT_LINE_BROADCAST_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: |
+          node tests/test_biwako_navigation_ui.cjs
+          for f in tests/test_*ui.cjs tests/test_batch.cjs tests/test_automatic_ui.cjs; do node "$f"; done
