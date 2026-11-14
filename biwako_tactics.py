@@ -290,6 +290,85 @@ def tactical_rows(entries, before, course_snapshot, summary, readiness):
     return [competitors[i] for i in range(1, 7)]
 
 
+def _sql_totals(table, field, starts_at, size, racer_filter=False):
+    """Build a fixed, trusted SQL aggregate; racer and date values are bound."""
+    # These are module-owned constants, never interpolated from a request.
+    assert (table, field) in (
+        ('boat_tactic_days', 'racer'),
+        ('boat_tactic_days', 'biwako'),
+        ('boat_racer_course_days', 'counts'),
+    )
+    start = 2 if racer_filter else 1
+    selectors = (["entry.value->>0 AS racer", "(entry.value->>1)::integer AS course"]
+                 if racer_filter else ["(entry.value->>0)::integer AS course"])
+    selectors.extend(
+        f"SUM((entry.value->>{start + i})::integer)::integer AS n{i}"
+        for i in range(size))
+    where = " AND (entry.value->>0) = ANY(%s)" if racer_filter else ""
+    return (f"SELECT {', '.join(selectors)} "
+            f"FROM public.{table} AS d "
+            f"CROSS JOIN LATERAL jsonb_array_elements(d.payload->'{field}') AS entry(value) "
+            "WHERE d.day BETWEEN %s AND %s "
+            "AND d.payload->>'format_version'='1'"
+            f"{where} GROUP BY {', '.join(str(i) for i in range(1, 3 if racer_filter else 2))}")
+
+
+TACTIC_RACER_SUMS = _sql_totals('boat_tactic_days', 'racer', 2, FIELD_COUNT, True)
+TACTIC_VENUE_SUMS = _sql_totals('boat_tactic_days', 'biwako', 1, FIELD_COUNT)
+COURSE_RACER_SUMS = _sql_totals('boat_racer_course_days', 'counts', 2, 4, True)
+
+
+def compact_summary(date, entries, before):
+    """Only transfer six entrants' historical counts, not ~365 daily archives.
+
+    Keep a common point-in-time window for all statistics. Use available
+    completed days as provisional estimates while yesterday's archive is still
+    being imported; missing days are always disclosed.
+    """
+    if not database_url():
+        raise RuntimeError('compact_summary requires the durable result database')
+    wanted = year_window(date)
+    earliest, latest = wanted[0], wanted[-1]
+    racers = sorted({str(entry.get('racer_id') or '') for entry in entries.values()
+                     if entry.get('racer_id')})
+    ensure_schema()
+    with state_connection() as connection:
+        connection.execute("SET LOCAL statement_timeout = '8s'")
+        status = connection.execute(
+            "SELECT "
+            "(SELECT count(*) FROM public.boat_tactic_days "
+            " WHERE day BETWEEN %s AND %s AND payload->>'format_version'='1'),"
+            "(SELECT count(*) FROM public.boat_racer_course_days "
+            " WHERE day BETWEEN %s AND %s AND payload->>'format_version'='1')",
+            (earliest, latest, earliest, latest),
+        ).fetchone()
+        tactic_days, course_days = map(int, status)
+        readiness = {'ready_days': tactic_days, 'total_days': len(wanted),
+                     'provisional': tactic_days != len(wanted),
+                     'start_date': earliest, 'end_date': latest,
+                     'baseline_days': course_days}
+        if tactic_days < 45 or not racers:
+            return {'racer': {}, 'biwako': {}}, readiness, None, course_days < len(wanted)
+        racer_records = connection.execute(
+            TACTIC_RACER_SUMS, (earliest, latest, racers)).fetchall()
+        venue_records = connection.execute(
+            TACTIC_VENUE_SUMS, (earliest, latest)).fetchall()
+        # Partial months must not be disguised as a full-year baseline.
+        # 300 observed days is the minimum for an interim course baseline.
+        baseline_records = (connection.execute(
+            COURSE_RACER_SUMS, (earliest, latest, racers)).fetchall()
+            if course_days >= 300 else [])
+
+    summary = {'racer': {(str(racer), int(course)): [int(x) for x in values]
+                         for racer, course, *values in racer_records},
+               'biwako': {int(course): [int(x) for x in values]
+                          for course, *values in venue_records}}
+    snapshot = ({'totals': {(str(racer), int(course)): [int(x) for x in values]
+                            for racer, course, *values in baseline_records}}
+                if course_days >= 300 else None)
+    return summary, readiness, snapshot, course_days != len(wanted)
+
+
 class TacticHistory:
     def __init__(self):
         self.lock = threading.RLock()

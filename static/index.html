@@ -1218,7 +1218,8 @@ function renderBiwakoTactics(data){
     return;
   }
   status.textContent='集計 '+progress+(data.provisional?'｜暫定値：集計期間が未完了':'｜過去1年分の集計完了')+
-    (data.baseline_pending?'｜着率の基準データは準備中':'')+
+    (data.baseline_pending ?
+      '｜着率基準'+(Number(data.baseline_days||0)>=300?'は暫定値（'+Number(data.baseline_days)+'/'+Number(data.total_days)+'日）':'データは準備中') : '')+
     '｜展示進入が未確定の場合は枠なり仮定で表示します。';
   body.innerHTML=data.boats.map(b=>{
     const labels=b.course===1 ?
@@ -1296,7 +1297,8 @@ async function loadBiwakoTactics(force=false){
   }catch(error){
     if(current.sequence===biwakoTacticsSequence && error.name!=='AbortError'){
       document.getElementById('biwakoTacticsStatus').textContent=
-        '展開分析を取得できませんでした。再確認を押してください。';
+        '展開分析の取得に失敗しました。'+String(error.message||'通信状況を確認してください。').slice(0,120)+
+        ' 「再確認」を押して再取得できます。';
     }
   }finally{
     if(biwakoTacticsRequest===current) biwakoTacticsRequest=null;
