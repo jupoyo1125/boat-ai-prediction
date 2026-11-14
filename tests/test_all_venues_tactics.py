@@ -1,5 +1,6 @@
 """Regression checks for real 24-venue race tactics and incremental archives."""
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import json
 import unittest
 from unittest import mock
@@ -101,6 +102,55 @@ class AllVenuesTacticTests(unittest.TestCase):
         sql,params=[q for q in queries if "FROM public.boat_tactic_venue_days" in q[0] and "'venues'" in q[0]][0]
         self.assertEqual(params,('20251115','20261114','04'))
         self.assertEqual(len(STADIUMS),24)
+
+    def test_worker_backfills_only_missing_venue_days_with_capped_official_fetches(self):
+        """Legacy national totals exist, but missing venue stats still get filled."""
+        class StopAfterBatch(BaseException):
+            pass
+        seen=[]
+        slots=[]
+        class Clock:
+            @staticmethod
+            def now(tz): return datetime(2026, 11, 15, 5, 0, tzinfo=tz)
+        class Response:
+            content=b'official-archive'
+            def raise_for_status(self): pass
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+        class Session:
+            def get(self,url,headers,timeout):
+                seen.append(url)
+                return Response()
+        class Slots:
+            @contextmanager
+            def slot(self,timeout,priority):
+                slots.append((timeout,priority))
+                yield
+        class Core:
+            _official_slots=Slots()
+            HEAD={}
+            app=mock.Mock()
+            @staticmethod
+            def official_session():return Session()
+        written=[]
+        def parse(raw,date):
+            return {'format_version':1,'date':date,'venues':[['04',1,*([0]*12)]]}
+        with mock.patch.object(tactics, 'datetime', Clock),\
+             mock.patch.object(tactics, 'storage_paused', return_value=False),\
+             mock.patch.object(tactics, 'known_days', side_effect=lambda days:set(days)),\
+             mock.patch.object(tactics, 'known_venue_days', return_value=set()),\
+             mock.patch.object(tactics, 'lease', contextmanager(lambda: (yield True))),\
+             mock.patch.object(tactics, 'archive_url', side_effect=lambda day:'archive/'+day),\
+             mock.patch.object(tactics, 'decode_archive', return_value='official'),\
+             mock.patch.object(tactics, 'parse_day', side_effect=parse),\
+             mock.patch.object(tactics, 'write_day', side_effect=written.append),\
+             mock.patch.object(tactics.time, 'sleep', side_effect=StopAfterBatch):
+            with self.assertRaises(StopAfterBatch):
+                tactics.TacticHistory().run(Core())
+        self.assertEqual([x['date'] for x in written], ['20261114','20261113'])
+        self.assertEqual(seen,['archive/20261114','archive/20261113'])
+        self.assertEqual(slots,[(10,1),(10,1)])
+
 
     def test_missing_venue_history_displays_raw_without_inventing_adjusted_rates(self):
         records = {('4001',1): [80,50,10,10,42,15,6,0,0,0,0,0]}
