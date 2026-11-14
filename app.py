@@ -2083,7 +2083,7 @@ def api_odds_debug_all_status():
 @app.get('/api/biwako_tactics')
 def api_biwako_tactics():
     """Independent, read-only per-race tactical analysis for Lake Biwa."""
-    from biwako_tactics import history as tactical_history, tactical_rows
+    from biwako_tactics import history as tactical_history, tactical_rows, compact_summary
     try:
         date = str(request.args.get('date', ''))
         stadium = str(request.args.get('stadium', '11')).zfill(2)
@@ -2094,20 +2094,24 @@ def api_biwako_tactics():
                 or target > today or (today - target).days > 7
                 or target.strftime('%Y%m%d') != date):
             return jsonify({'ok': False, 'error': 'びわこの直近7日間のレースを選択してください。'}), 400
-        summary, readiness = tactical_history.get(date)
-        if readiness['ready_days'] < 45:
-            response = jsonify({'ok': True, 'code': 'preparing', **readiness, 'boats': []})
-            response.headers['Cache-Control'] = 'no-store'
-            return response
-
-        deadline = time.monotonic() + 30
+        # Load the current six racers first. A full-year archive scan before
+        # checking the race previously exceeded the browser's 35s timeout.
+        deadline = time.monotonic() + 22
         racelist = f'{BASE}racelist?hd={date}&jcd=11&rno={race:02d}'
         beforeurl = f'{BASE}beforeinfo?hd={date}&jcd=11&rno={race:02d}'
         pages = [submit_official_page(url, deadline) for url in (racelist, beforeurl)]
+        before_provisional = False
         try:
             raw_html = await_official_page(pages[0], deadline)
             raw = boats_from(raw_html)
-            before = parse_before(await_official_page(pages[1], deadline))
+            # Before exhibition, the official beforeinfo page can be empty
+            # or temporarily unavailable. The entry course is then unknown,
+            # so the UI visibly labels an assumed box-order course.
+            try:
+                before = parse_before(await_official_page(pages[1], deadline))
+            except (requests.RequestException, OfficialRequestBusy, ValueError):
+                before = {'entry_course': {}}
+                before_provisional = True
         finally:
             for page in pages:
                 page.cancel()
@@ -2123,23 +2127,35 @@ def api_biwako_tactics():
                 'racer_id': racer_id,
                 'name': re.sub(r'^\d+\s*/\s*[A-Z]\d+\s*', '', identity).strip(),
             }
-        try:
-            snapshot = course_history.get(date)
-            baseline_pending = False
-        except CourseHistoryPending:
-            snapshot = None
-            baseline_pending = True
+        if database_url():
+            summary, readiness, snapshot, baseline_pending = compact_summary(
+                date, entries, before)
+        else:
+            # File-backed local/dev mode retains the original archive behavior.
+            summary, readiness = tactical_history.get(date)
+            try:
+                snapshot = course_history.get(date)
+                baseline_pending = False
+            except CourseHistoryPending:
+                snapshot = None
+                baseline_pending = True
+        if readiness['ready_days'] < 45:
+            response = jsonify({'ok': True, 'code': 'preparing', **readiness, 'boats': []})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
         result = {'ok': True, 'code': 'ready', 'date': date,
                   'stadium': stadium, 'race': race,
                   **readiness, 'baseline_pending': baseline_pending,
+                  'before_provisional': before_provisional,
                   'boats': tactical_rows(entries, before, snapshot, summary, readiness)}
         response = jsonify(result)
         response.headers['Cache-Control'] = 'no-store'
         return response
     except (ValueError, TypeError) as error:
         return jsonify({'ok': False, 'error': str(error)}), 400
-    except (requests.Timeout, OfficialRequestBusy):
-        return jsonify({'ok': False, 'error': '公式データの取得が混み合っています。再読み込みしてください。'}), 503
+    except (requests.RequestException, OfficialRequestBusy):
+        return jsonify({'ok': False, 'code': 'official_unavailable',
+                        'error': '公式出走表の通信が混み合っています。再確認してください。'}), 503
     except Exception:
         app.logger.exception('Biwako tactical analysis unavailable')
         return jsonify({'ok': False, 'error': '分析データの取得に失敗しました。再読み込みしてください。'}), 503
