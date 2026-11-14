@@ -135,7 +135,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 /* Compact race directory and separate information views. */
 :root{--bg:#f4f6fa;--panel:#fff;--panel2:#f5f8fc;--line:#dce4ef;--text:#172b46;--muted:#62738a;--accent:#1476db;--accent2:#1266b8;--good:#16734c;--warn:#966412;--bad:#b33a4c}
 [hidden]{display:none!important}html{scroll-behavior:smooth;scroll-padding-top:74px}body{background:var(--bg);line-height:1.6}.app{max-width:1024px;padding:0 24px 20px}.site-header{height:88px;margin:0;align-items:center}.brand{display:flex;align-items:center;gap:11px;font-size:27px;line-height:1;text-decoration:none;color:var(--text);letter-spacing:-.8px}.brand strong{color:var(--accent);font-weight:900}.brand .brand-mark{display:grid;place-items:center;width:39px;height:39px;border-radius:11px;background:#153c70;color:white;font-size:27px;font-style:italic}.brand small{display:block;font-size:10px;font-weight:500;letter-spacing:1.3px;margin-top:9px;color:var(--muted)}.brand>span:not(.brand-mark){color:var(--text)}.header-label{font-size:10px;letter-spacing:1.8px;font-weight:700;color:var(--muted)}
-.main-nav{display:grid;grid-template-columns:repeat(3,1fr);position:sticky;top:0;z-index:10;background:rgba(255,255,255,.98);border-bottom:1px solid var(--line);margin-bottom:16px;border-radius:10px 10px 0 0;box-shadow:0 3px 8px #173b6510}.main-nav a{text-decoration:none;color:var(--muted);text-align:center;padding:14px 6px 11px;border-bottom:3px solid transparent;font-size:14px;font-weight:800}.main-nav a[aria-current=page]{color:var(--accent2);border-color:var(--accent);background:#f1f7ff}.main-nav a:hover{background:#f5f8fc}
+.main-nav{display:grid;grid-template-columns:repeat(4,1fr);position:sticky;top:0;z-index:10;background:rgba(255,255,255,.98);border-bottom:1px solid var(--line);margin-bottom:16px;border-radius:10px 10px 0 0;box-shadow:0 3px 8px #173b6510}.main-nav a{text-decoration:none;color:var(--muted);text-align:center;padding:14px 6px 11px;border-bottom:3px solid transparent;font-size:14px;font-weight:800}.main-nav a[aria-current=page]{color:var(--accent2);border-color:var(--accent);background:#f1f7ff}.main-nav a:hover{background:#f5f8fc}
 .panel{border:1px solid var(--line);border-radius:12px;background:white;padding:20px;margin:0 0 16px;box-shadow:0 2px 4px #173b6504}.panel h2{color:var(--text);font-size:17px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.eyebrow{font-size:9px;letter-spacing:1.7px;color:var(--muted);font-weight:700;margin:0 0 4px}.section-heading h1,.section-heading h2{margin:0;font-size:21px;line-height:1.4}.section-hint{font-size:11px;color:var(--muted);white-space:nowrap}.page-heading{margin:24px 2px 18px}.page-heading h1{font-size:25px;margin:0 0 4px}.page-heading>p:last-child{font-size:13px;color:var(--muted);margin:0}
 .automation-panel{padding:12px 18px;border-top:3px solid #ecc357}.automation-panel h2{font-size:12px;margin:0 0 6px}.automation-panel .metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.automation-panel .metric{padding:0 12px;background:white;border-radius:0;border-left:1px solid var(--line)}.automation-panel .metric:first-child{padding-left:0;border-left:0}.automation-panel .metric small{font-size:11px}.automation-panel .metric b{font-size:20px;line-height:1.5;margin-top:0}.automation-panel .metric:first-child b{font-size:14px;min-height:30px;display:flex;align-items:center}.automation-details{margin-top:7px}.automation-details summary{font-size:11px;color:var(--muted);cursor:pointer}.automation-details p{font-size:12px;margin-top:8px!important}.automation-details .status{margin-top:8px}.automation-details>small{display:block;margin-top:6px;font-size:11px}
 button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42px}button{background:#1476db;color:white;box-shadow:none}button:hover:not(:disabled){filter:brightness(.96)}button.secondary{background:#edf4fc;border:1px solid #c5d8ed;color:#1f5a96}select,input{background:white;color:var(--text);border:1px solid #cfd9e6;min-width:0;padding:9px 11px}select:disabled{background:#edf1f6;color:var(--muted)}button:disabled{opacity:.6;cursor:default}button:focus-visible,a:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #4e9ff3;outline-offset:3px}
@@ -149,6 +149,12 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 
 
 .biwako-tactics{border-top:3px solid #2d89c9}
+.biwako-race-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:8px 0;color:var(--text)}
+.biwako-race-heading strong{font-size:16px}
+.biwako-race-heading span{font-size:11px;color:var(--muted);text-align:right}
+.biwako-race-buttons{margin-bottom:12px}
+.biwako-race-buttons .race-btn.active{background:#e9f3ff;color:#0b5caa}
+@media(max-width:760px){.main-nav a{font-size:12px}.biwako-race-heading{display:block}.biwako-race-heading span{display:block;text-align:left}}
 .biwako-tactics .section-heading{margin-bottom:8px}
 .biwako-reload{width:auto;padding:6px 12px;min-height:34px;white-space:nowrap}
 .biwako-tactics-note,.biwako-tactics-help{font-size:11px;color:var(--muted);line-height:1.7;margin:8px 0 12px}
@@ -184,6 +190,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
 </header>
 <nav class="main-nav" aria-label="メインメニュー">
  <a href="#races" id="navRaces" data-nav="races" aria-current="page">レース情報</a>
+ <a href="#biwako" id="navBiwako" data-nav="biwako" onclick="requestBiwakoFocus()">びわこ展開分析</a>
  <a href="#performance" id="navPerformance" data-nav="performance">運用実績</a>
  <a href="#learning" id="navLearning" data-nav="learning">AI学習</a>
 </nav>
@@ -241,6 +248,8 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
    <div><p class="eyebrow">BIWAKO TACTICAL ANALYSIS</p><h2 id="biwakoTacticsTitle">びわこ｜展開別の着率変化</h2></div>
    <button type="button" class="secondary biwako-reload" onclick="loadBiwakoTactics(true)">再確認</button>
   </div>
+  <div class="biwako-race-heading"><strong id="biwakoSelectedRace">びわこ 1R</strong><span>レースを選ぶと、6選手の傾向と着率変化を表示</span></div>
+  <div id="biwakoRaceButtons" class="race-buttons biwako-race-buttons" role="group" aria-label="びわこ展開分析の1Rから12R"></div>
   <p id="biwakoTacticsStatus" role="status" aria-live="polite" class="biwako-tactics-note">集計状況を確認しています。</p>
   <div class="table-scroll" id="biwakoTacticsResults" hidden>
    <table class="biwako-tactics-table">
@@ -526,6 +535,7 @@ let lastPrediction=null;
 let biwakoTacticsRequest=null;
 let biwakoTacticsCache=null;
 let biwakoTacticsSequence=0;
+let biwakoShortcutPending=false;
 
 let manualAnalysisRunning=false;
 let manualAnalysisSequence=0;
@@ -605,23 +615,47 @@ async function fetchPredictionJson(url,options={},timeoutMs=15000,controller=new
 const VENUE_NAMES=['桐生','戸田','江戸川','平和島','多摩川','浜名湖','蒲郡','常滑','津','三国','びわこ','住之江','尼崎','鳴門','丸亀','児島','宮島','徳山','下関','若松','芦屋','福岡','唐津','大村'];
 let listedVenues=[];
 function showPage(view){
-  if(!['races','performance','learning'].includes(view)) view='races';
-  activePage=view;
-  document.querySelectorAll('[data-page]').forEach(page=>{page.hidden=page.getAttribute('data-page')!==view;});
+  if(!['races','biwako','performance','learning'].includes(view)) view='races';
+  activePage=view==='biwako'?'races':view;
+  document.querySelectorAll('[data-page]').forEach(page=>{page.hidden=page.getAttribute('data-page')!==activePage;});
   document.querySelectorAll('[data-nav]').forEach(link=>{
     if(link.getAttribute('data-nav')===view) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
 }
+function requestBiwakoFocus(){
+  biwakoShortcutPending=true;
+  focusBiwakoWhenReady();
+}
+function focusBiwakoWhenReady(){
+  if(!biwakoShortcutPending) return;
+  const stadium=document.getElementById('stadium');
+  if(!scheduleLoadedDate || stadium.disabled) return;
+  if(!listedVenues.some(venue=>venue.stadium==='11')){
+    biwakoShortcutPending=false;
+    document.getElementById('scheduleNotice').textContent=
+      'この日はびわこの本場開催がありません。開催日を変更してください。';
+    document.getElementById('raceDirectoryTitle')?.scrollIntoView?.({block:'start'});
+    return;
+  }
+  biwakoShortcutPending=false;
+  if(stadium.value!=='11') selectVenue('11','biwakoTacticsPanel');
+  else document.getElementById('biwakoTacticsPanel')?.scrollIntoView?.({block:'start',behavior:'smooth'});
+}
 function showPageFromHash(){
-  showPage((window.location?.hash||'#races').slice(1));
+  const hash=(window.location?.hash||'#races').slice(1);
+  showPage(hash);
   if(activePage==='races') loadSelectedSavedPrediction();
   if(activePage==='performance') loadPerformanceStatus();
   if(activePage==='learning'){
     loadLearningStatus();
     loadHistoricalStatus();
   }
-  window.scrollTo?.({top:0,behavior:'auto'});
+  if(hash==='biwako') requestBiwakoFocus();
+  else{
+    biwakoShortcutPending=false;
+    window.scrollTo?.({top:0,behavior:'auto'});
+  }
 }
 function showBetCategory(category){
   if(!['gachi','roman','oni'].includes(category)) return;
@@ -658,7 +692,7 @@ function syncRaceSelection(){
     button.setAttribute?.('aria-pressed',String(selected));
   });
 }
-function selectVenue(stadium){
+function selectVenue(stadium, scrollTarget='selectedRaceTitle'){
   const select=document.getElementById('stadium');
   if(select.disabled||!listedVenues.some(venue=>venue.stadium===stadium)) return;
   select.value=stadium;
@@ -666,7 +700,7 @@ function selectVenue(stadium){
   renderRaceButtons();
   loadRaceStatus();
   loadSelectedSavedPrediction();
-  document.getElementById('selectedRaceTitle')?.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
+  document.getElementById(scrollTarget)?.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
 }
 function renderAllRaces(venues){
   const container=document.getElementById('raceList');
@@ -859,6 +893,7 @@ async function loadSchedule(){
     retry.hidden=!x.stale;
     loadRaceStatus();
     await loadSelectedSavedPrediction();
+    focusBiwakoWhenReady();
     return;
   }
   if(!current()) return;
@@ -871,6 +906,7 @@ async function loadSchedule(){
     notice.textContent='開催場の更新に失敗しました。この日付の取得済み開催場を表示しています。「開催場を再取得」で再確認できます。';
     loadRaceStatus();
     await loadSelectedSavedPrediction();
+    focusBiwakoWhenReady();
   }else{
     stadium.innerHTML='<option value="">開催情報を取得できません</option>';
     notice.textContent='開催場を取得できませんでした。「開催場を再取得」を押してください。';
@@ -1192,7 +1228,7 @@ function renderBiwakoTactics(data){
     return '<tr><th scope="row"><span class="tactic-boat">'+Number(b.boat)+'号艇</span>'+
       '<span class="tactic-name">'+tacticEscape(b.name)+'</span>'+
       '<small>'+Number(b.course)+'コース'+(b.provisional_course?'（仮定）':'')+
-      '｜'+Number(b.starts||0)+'走'+(b.sample_warning?'・少数':'')+'</small></th>'+
+      '｜展開'+Number(b.starts||0)+'走 / 着率基準'+Number(b.baseline_starts||0)+'走'+(b.sample_warning?'・少数':'')+'</small></th>'+
       '<td class="tactic-method">'+tactics+'</td>'+
       '<td>'+tacticRateCell(b.rates?.first)+'</td>'+
       '<td>'+tacticRateCell(b.rates?.second)+'</td>'+
@@ -1200,11 +1236,38 @@ function renderBiwakoTactics(data){
   }).join('');
   results.hidden=false;
 }
+function renderBiwakoRaceButtons(){
+  const container=document.getElementById('biwakoRaceButtons');
+  if(!container) return;
+  const params=getParams();
+  const title=document.getElementById('biwakoSelectedRace');
+  if(title) title.textContent='びわこ '+params.race+'R';
+  container.innerHTML='';
+  if(params.stadium!=='11') return;
+  const status=raceStatusCache.get(selectedRaceStatusKey());
+  for(let race=1;race<=12;race++){
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='race-btn';
+    button.textContent=race+'R';
+    if(status?.settled?.has(race)||status?.cancelled?.has(race)) button.classList.add('settled');
+    if(race===params.race) button.classList.add('active');
+    button.setAttribute?.('aria-pressed',String(race===params.race));
+    button.setAttribute?.('aria-label','びわこ '+race+'Rの展開分析を表示');
+    button.onclick=()=>{
+      document.getElementById('race').value=race+'R';
+      renderRaceButtons();
+      loadSelectedSavedPrediction();
+    };
+    container.appendChild(button);
+  }
+}
 async function loadBiwakoTactics(force=false){
   const panel=document.getElementById('biwakoTacticsPanel');
   const p=getParams();
   const isBiwako=p.stadium==='11' && /^\d{8}$/.test(p.date) && p.race>=1 && p.race<=12;
   panel.hidden=!isBiwako;
+  renderBiwakoRaceButtons();
   if(!isBiwako){
     if(biwakoTacticsRequest) biwakoTacticsRequest.controller.abort();
     biwakoTacticsRequest=null;
