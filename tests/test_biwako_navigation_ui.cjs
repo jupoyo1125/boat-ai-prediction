@@ -8,6 +8,7 @@ new vm.Script(source);
 const definitions=source.slice(0,source.lastIndexOf("document.getElementById('date').addEventListener"));
 function element(){
  const attrs={},classes=new Set();
+ let markup='';
  return {
   children:[],value:'',textContent:'',hidden:false,disabled:false,
   classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),contains:x=>classes.has(x)},
@@ -16,7 +17,9 @@ function element(){
   removeAttribute:name=>{delete attrs[name]},
   scrollIntoView(){},
   appendChild(child){this.children.push(child)},
-  innerHTML:'',classes
+  get innerHTML(){return markup;},
+  set innerHTML(value){markup=value;this.children=[];},
+  classes
  };
 }
 const elements=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(m=>[m[1],element()]));
@@ -27,7 +30,10 @@ elements.get('fixed').value='none';
 const pages=[elements.get('pageRaces'),elements.get('pagePerformance'),elements.get('pageLearning')];
 pages[0].getAttribute=()=> 'races';pages[1].getAttribute=()=> 'performance';pages[2].getAttribute=()=> 'learning';
 const nav=[elements.get('navRaces'),elements.get('navBiwako'),elements.get('navPerformance'),elements.get('navLearning')];
-nav.forEach((link,i)=>link.getAttribute=name=>name==='data-nav'?['races','biwako','performance','learning'][i]:undefined);
+nav.forEach((link,i)=>{
+ const originalGet=link.getAttribute;
+ link.getAttribute=name=>name==='data-nav'?['races','biwako','performance','learning'][i]:originalGet(name);
+});
 let selected=[],updated=0;
 const ctx=vm.createContext({
  Date,URLSearchParams,AbortController,setTimeout,clearTimeout,console,
