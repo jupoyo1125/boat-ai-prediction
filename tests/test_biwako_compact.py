@@ -86,7 +86,7 @@ class CompactSummaryChecks(unittest.TestCase):
                    'provisional':True,'start_date':'20251115','end_date':'20261114'}
         snapshot={'totals':{(f'400{i}',i):[75,40 if i==1 else 12,20,11]
                             for i in range(1,7)}}
-        racer_entries={i:['','','400%d / A1 選手%d'%(4000+i,i)] for i in range(1,7)}
+        racer_entries={i:['','','%d / A1 選手%d'%(4000+i,i)] for i in range(1,7)}
         class Page:
             def __init__(self,url): self.url=url
             def cancel(self): pass
