@@ -8,8 +8,13 @@ new vm.Script(source);
 const definitions=source.slice(0,source.lastIndexOf("document.getElementById('date').addEventListener"));
 
 function createEnvironment(fetcher){
+  function node(){
+    return {value:'',hidden:false,disabled:false,textContent:'',innerHTML:'',children:[],
+      setAttribute(){},classList:{add(){}},
+      appendChild(child){this.children.push(child);}};
+  }
   const elements=new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(match=>[
-    match[1],{value:'',hidden:false,disabled:false,textContent:'',innerHTML:''}
+    match[1],node()
   ]));
   elements.get('date').value='20261026';
   elements.get('stadium').value='11';
@@ -17,7 +22,7 @@ function createEnvironment(fetcher){
   elements.get('fixed').value='none';
   const calls=[];
   const sandbox=vm.createContext({console,Date,URLSearchParams,AbortController,setTimeout,clearTimeout,
-    document:{getElementById:id=>elements.get(id)},
+    document:{getElementById:id=>elements.get(id),createElement:node},
     fetch:async (url,options)=>{
       calls.push({url,options});
       return fetcher(url,options);
