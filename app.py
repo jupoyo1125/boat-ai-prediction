@@ -2237,6 +2237,14 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         for page in pages.values():
             page.cancel()
 
+    # Keep the pre-fusion scores only in memory to compare both models using
+    # exactly the same race information and odds. Never rewrite old forecasts.
+    unfused_scores = [
+        {'boat': row['boat'], 'score': row['score'],
+         'second_score': row.get('second_score', row['score']),
+         'third_score': row.get('third_score', row['score'])}
+        for row in boats
+    ]
     # Independent tactical aggregates are deliberately optional: a missing or
     # slow statistic must never block an already-complete official forecast.
     # Both data sources stop on the day BEFORE this race; no settled target-day
@@ -2285,6 +2293,24 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         race_scenario,
         model=model,
     )
+    # Record compact control-group tickets on the original odds and rule set.
+    # Actual payout can then be compared with fused bets after settlement.
+    # Only a few short bet strings are saved; no second official/API request.
+    tactics_comparison = None
+    if tactics_meta.get('applied') and not ranking_only:
+        baseline_bets = build_bets(
+            unfused_scores, odds, fixed, scenario(unfused_scores, before),
+            model=model)
+        tactics_comparison = {
+            'version': TACTICS_VERSION,
+            'baseline_main': max(unfused_scores, key=lambda row: row['score'])['boat'],
+            'baseline_bets': {
+                category: [ticket['bet'] for ticket in baseline_bets
+                           if ticket['category'] == category]
+                for category in BET_CATEGORIES
+            },
+            'same_odds_snapshot': True,
+        }
 
     boats.sort(
         key=lambda x:x['score'],
@@ -2311,6 +2337,8 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
                  + (' 展示進入未確定・成績なしの項目は中立評価です。' if current_features else ''),
         'source':source,'before_source':before_source,'odds_source':odds_source
     }
+    if tactics_comparison is not None:
+        result['tactics_comparison'] = tactics_comparison
     if not ranking_only:
         result['oni_selection_rule'] = (ONI_SELECTION_RULE if current_features else 'legacy-ev-v1')
         result['roman_selection_rule'] = (ROMAN_SELECTION_RULE if current_features else 'legacy-overlap-v1')
