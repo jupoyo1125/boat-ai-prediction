@@ -372,7 +372,7 @@ TACTIC_ALL_VENUE_SUMS = (
 )
 
 
-def compact_summary(date, entries, before, stadium=BIWAKO):
+def compact_summary(date, entries, before, stadium=BIWAKO, include_baseline=True):
     """Only transfer six entrants' historical counts, not ~365 daily archives.
 
     Keep a common point-in-time window for all statistics. Use available
@@ -429,7 +429,7 @@ def compact_summary(date, entries, before, stadium=BIWAKO):
         # 300 observed days is the minimum for an interim course baseline.
         baseline_records = (connection.execute(
             COURSE_RACER_SUMS, (earliest, latest, racers)).fetchall()
-            if course_days >= 300 else [])
+            if course_days >= 300 and include_baseline else [])
 
     summary = {'racer': {(str(racer), int(course)): [int(x) for x in values]
                          for racer, course, *values in racer_records},
@@ -439,7 +439,7 @@ def compact_summary(date, entries, before, stadium=BIWAKO):
         summary['biwako'] = summary['venue']  # Legacy API/internal callers.
     snapshot = ({'totals': {(str(racer), int(course)): [int(x) for x in values]
                             for racer, course, *values in baseline_records}}
-                if course_days >= 300 else None)
+                if course_days >= 300 and include_baseline else None)
     return summary, readiness, snapshot, course_days != len(wanted)
 
 
