@@ -19,6 +19,7 @@ from official_http import OfficialRequestSlots, OfficialRequestBusy
 from official_results_cache import DailyResultsCache
 from historical_archive import archive_url, decode_archive, parse_daily_results, MAX_COMPRESSED
 from prediction_features import FEATURE_SCHEMA, FEATURE_KEYS, analyze_features, meeting_results
+from tactics_integration import TACTICS_VERSION, integrate_tactical_scores, valid_mode
 from course_history_store import history as course_history, CourseHistoryPending
 from model import feature_schema as model_feature_schema
 from venue_schedule import VenueScheduleCache
@@ -2236,6 +2237,50 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         for page in pages.values():
             page.cancel()
 
+    # Keep the pre-fusion scores only in memory to compare both models using
+    # exactly the same race information and odds. Never rewrite old forecasts.
+    unfused_scores = [
+        {'boat': row['boat'], 'score': row['score'],
+         'second_score': row.get('second_score', row['score']),
+         'third_score': row.get('third_score', row['score'])}
+        for row in boats
+    ]
+    # Independent tactical aggregates are deliberately optional: a missing or
+    # slow statistic must never block an already-complete official forecast.
+    # Both data sources stop on the day BEFORE this race; no settled target-day
+    # result is allowed into the forecast.
+    tactical_mode = valid_mode(os.getenv('BOAT_TACTICS_PREDICTION_MODE', 'on').lower())
+    tactics_meta = {'version': TACTICS_VERSION, 'mode': tactical_mode,
+                    'applied': False, 'reason': 'not_available', 'eligible_boats': 0}
+    if (current_features and tactical_mode in ('on', 'shadow')
+            and database_url() and isinstance(hist, dict)
+            and 'totals' in hist and isinstance(before.get('entry_course'), dict)
+            and set(before['entry_course']) == set(range(1, 7))
+            and time.monotonic() + 10 < deadline):
+        try:
+            from biwako_tactics import compact_summary, tactical_rows
+            tactical_entries = {
+                row['boat']: {'racer_id': row.get('racer_id'), 'name': row.get('name')}
+                for row in boats
+            }
+            tactical_summary, tactical_readiness, _, _ = compact_summary(
+                date, tactical_entries, before, jcd, include_baseline=False)
+            tactical_records = tactical_rows(
+                tactical_entries, before, hist, tactical_summary, tactical_readiness)
+            tactics_meta = integrate_tactical_scores(
+                boats, tactical_records, tactical_readiness, mode=tactical_mode)
+        except Exception:
+            app.logger.warning(
+                'Optional tactical forecast adjustment skipped date=%s stadium=%s race=%s',
+                date, jcd, race, exc_info=True)
+            tactics_meta['reason'] = 'source_unavailable'
+    elif current_features and tactical_mode in ('on', 'shadow'):
+        tactics_meta['reason'] = ('entry_course_unconfirmed' if
+                                  len(before.get('entry_course') or {}) != 6
+                                  else 'deadline_or_storage_unavailable')
+    elif tactical_mode == 'off':
+        tactics_meta['reason'] = 'disabled'
+
     race_scenario = scenario(
         boats,
         before
@@ -2248,6 +2293,24 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         race_scenario,
         model=model,
     )
+    # Record compact control-group tickets on the original odds and rule set.
+    # Actual payout can then be compared with fused bets after settlement.
+    # Only a few short bet strings are saved; no second official/API request.
+    tactics_comparison = None
+    if tactics_meta.get('applied') and not ranking_only:
+        baseline_bets = build_bets(
+            unfused_scores, odds, fixed, scenario(unfused_scores, before),
+            model=model)
+        tactics_comparison = {
+            'version': TACTICS_VERSION,
+            'baseline_main': max(unfused_scores, key=lambda row: row['score'])['boat'],
+            'baseline_bets': {
+                category: [ticket['bet'] for ticket in baseline_bets
+                           if ticket['category'] == category]
+                for category in BET_CATEGORIES
+            },
+            'same_odds_snapshot': True,
+        }
 
     boats.sort(
         key=lambda x:x['score'],
@@ -2262,13 +2325,20 @@ def predict_race(date, jcd, race, fixed='none', days=3, before=None, model=None,
         'main':boats[0]['boat'],'second':boats[1]['boat'],'hole':boats[2]['boat'],
         'scenario':scenario(boats,before),'bets':combos,
         'history':history_info, 'feature_schema': model_feature_schema(model),
+        'tactics_integration': tactics_meta,
         'features':feature_snapshot(boats),
         'weather':{'wind':before['wind'],'wave':before['wave'],'air':before['air'],'water':before['water']},
         'odds_count':sum(v is not None for v in odds.values()),
         'notice':basis_notice + 'と3連単オッズを使った予想です。'
+                 + (' 展開傾向の小幅な補正を評価点・買い目に反映しています。'
+                    if tactics_meta.get('applied') else
+                    ' 展開補正は条件未達のため従来評価です。'
+                    if current_features else '')
                  + (' 展示進入未確定・成績なしの項目は中立評価です。' if current_features else ''),
         'source':source,'before_source':before_source,'odds_source':odds_source
     }
+    if tactics_comparison is not None:
+        result['tactics_comparison'] = tactics_comparison
     if not ranking_only:
         result['oni_selection_rule'] = (ONI_SELECTION_RULE if current_features else 'legacy-ev-v1')
         result['roman_selection_rule'] = (ROMAN_SELECTION_RULE if current_features else 'legacy-overlap-v1')

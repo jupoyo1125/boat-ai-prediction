@@ -1,0 +1,39 @@
+name: Tactics integrated prediction regression
+on:
+  push:
+    branches: ['codex/tactics-integrate-prediction-*']
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'biwako_tactics.py'
+      - 'tactics_integration.py'
+      - 'tests/test_tactics_integration.py'
+      - '.github/workflows/tactics-fusion-ci.yml'
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BOAT_AUTO_ENABLED: '0'
+      BOAT_AUTO_RUNNER: '0'
+      BOAT_COURSE_RUNNER: '0'
+      BOAT_TACTICS_RUNNER: '0'
+      BOAT_HISTORY_RUNNER: '0'
+      BOAT_THREADS_ENABLED: '0'
+      BOAT_LINE_ENABLED: '0'
+      BOAT_LINE_BROADCAST_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile app.py biwako_tactics.py tactics_integration.py tests/test_tactics_integration.py
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: |
+          for f in tests/test_*ui.cjs tests/test_batch.cjs; do node "$f"; done

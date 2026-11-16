@@ -235,6 +235,7 @@ button,select,input{font:inherit;font-size:13px;border-radius:8px;min-height:42p
   <div id="raceButtons" class="race-buttons" role="group" aria-label="レース番号"></div>
 <p class="race-results-note" id="raceStatusNote" role="status">結果の確定状況を確認しています。</p>
   <div class="status" id="reason" role="status">開催場とレースを選ぶと、保存済みの予想を表示します。</div>
+  <p class="race-results-note" id="predictionTacticsStatus" role="status">展開補正の反映状態は予想の保存後に確認できます。</p>
   <button type="button" class="secondary" id="savedPredictionRetry" hidden onclick="loadSelectedSavedPrediction()">予想を再読み込み</button>
   <section class="panel"><div class="metrics">
 <div class="metric"><small>本命</small><b id="main">-</b></div><div class="metric"><small>対抗</small><b id="second">-</b></div><div class="metric"><small>穴</small><b id="hole">-</b></div><div class="metric"><small>想定</small><b id="type">-</b></div>
@@ -1368,13 +1369,17 @@ async function loadSelectedSavedPrediction(){
     document.getElementById('oniSelectionBasis').textContent='ガチガチから3点';
     document.getElementById('romanSelectionBasis').textContent='高配当・ガチガチと重複なし';
     document.getElementById('reason').textContent='保存済みの自動予想を確認しています。';
+    document.getElementById('predictionTacticsStatus').textContent='選択中のレースの展開補正を確認しています。';
   }
   try{
     const {response,data}=await fetchPredictionJson(
       '/api/saved_prediction?'+new URLSearchParams(params),{},15000,pending.controller);
     if(sequence!==savedPredictionSequence || manualAnalysisRunning) return;
     if(response.status===404){
-      if(!lastPrediction) document.getElementById('reason').textContent='展示後の自動予想が保存されると、ここに表示されます。';
+      if(!lastPrediction){
+        document.getElementById('reason').textContent='展示後の自動予想が保存されると、ここに表示されます。';
+        document.getElementById('predictionTacticsStatus').textContent='予想保存前のため展開補正は未確認です。';
+      }
       return;
     }
     if(!response.ok || !data.ok || !data.record){
@@ -1632,6 +1637,22 @@ function featureDetails(b){
     ${date(b.course_start_date)}～${date(b.course_end_date)}`;
 }
 function renderAnalysis(x){
+  const tactic=x.tactics_integration||{};
+  const tacticNote=document.getElementById('predictionTacticsStatus');
+  if(tacticNote){
+    if(!tactic.version){
+      tacticNote.textContent='以前に保存された予想：展開分析の統合前です。';
+    }else if(tactic.applied){
+      tacticNote.textContent='展開分析反映済み｜'+Number(tactic.eligible_boats||0)+
+        '艇の逃げ・差し・まくり傾向を1〜3着の評価点に小幅反映。';
+    }else if(tactic.mode==='shadow'){
+      tacticNote.textContent='展開分析は比較検証中（今回の買い目には未反映）。';
+    }else if(tactic.reason==='entry_course_unconfirmed'||tactic.reason==='course_or_racer_unconfirmed'){
+      tacticNote.textContent='展示進入未確定のため展開補正なし・従来AIで予想。';
+    }else{
+      tacticNote.textContent='展開データの標本不足などにより補正なし・従来AIで予想。';
+    }
+  }
 
   document.getElementById('boats').innerHTML =
     x.boats.map(b =>
