@@ -124,18 +124,22 @@ class TacticsFusionTests(unittest.TestCase):
         class Page:
             def cancel(self): pass
         results=[]
-        def request(mode, faulty=False):
+        all_odds = {''.join(map(str, order)): 100.0
+                    for order in core.permutations(range(1, 7), 3)}
+        def request(mode, faulty=False, ranking=True):
             with mock.patch.dict('os.environ',{'BOAT_TACTICS_PREDICTION_MODE':mode}),\
                  mock.patch.object(core,'database_url',return_value='db'),\
                  mock.patch.object(core,'submit_official_page',return_value=Page()),\
                  mock.patch.object(core,'await_official_page',return_value='<fixture>'),\
                  mock.patch.object(core,'boats_from',return_value=raw),\
                  mock.patch.object(core,'meeting_results',return_value={}),\
+                 mock.patch.object(core,'parse_odds',return_value=all_odds),\
+                 mock.patch('line_prediction.prepare_forecast',return_value=None),\
                  mock.patch.object(tactics,'compact_summary',
                                    side_effect=RuntimeError('db error') if faulty
                                    else lambda *a,**kw:(archive,readiness,None,False)) as summary:
                 output=core.predict_race('20261115','04',3, before=before,
-                        model=copy.deepcopy(model.DEFAULT),hist=snapshot,ranking_only=True)
+                        model=copy.deepcopy(model.DEFAULT),hist=snapshot,ranking_only=ranking)
             results.append((output,summary))
             return output
         baseline=request('off')
@@ -162,6 +166,29 @@ class TacticsFusionTests(unittest.TestCase):
         self.assertEqual(fused['feature_schema'],model.FEATURE_SCHEMA)
         self.assertTrue(fused['ranking_only'])
         self.assertEqual(fused['bets'],[])
+
+        # Both ticket sets must use the same, already fetched odds snapshot.
+        # The old control picks are kept compactly inside the saved prediction.
+        original_tickets=request('off',ranking=False)
+        integrated_tickets=request('on',ranking=False)
+        comparison=integrated_tickets['tactics_comparison']
+        self.assertTrue(comparison['same_odds_snapshot'])
+        self.assertEqual(comparison['baseline_main'],original_tickets['main'])
+        for category in core.BET_CATEGORIES:
+            original=[b['bet'] for b in original_tickets['bets']
+                      if b['category']==category]
+            self.assertEqual(comparison['baseline_bets'][category],original)
+        self.assertNotIn('tactics_comparison',original_tickets)
+        self.assertEqual(set(b['bet'] for b in integrated_tickets['bets']
+                             if b['category']=='oni')
+                         .issubset(set(b['bet'] for b in integrated_tickets['bets']
+                                       if b['category']=='gachi')),True)
+        self.assertFalse(set(b['bet'] for b in integrated_tickets['bets']
+                             if b['category']=='roman')
+                         & set(b['bet'] for b in integrated_tickets['bets']
+                               if b['category']=='gachi'))
+        self.assertLessEqual(len(comparison['baseline_bets']['gachi']),10)
+        self.assertLessEqual(len(comparison['baseline_bets']['oni']),3)
 
 
 if __name__=='__main__':
